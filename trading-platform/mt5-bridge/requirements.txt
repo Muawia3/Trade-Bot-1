@@ -1,0 +1,9 @@
+fastapi>=0.104.0
+uvicorn[standard]>=0.24.0
+pydantic>=2.5.0
+pydantic-settings>=2.1.0
+websockets>=12.0
+pandas>=2.1.4
+numpy>=1.26.2
+# Windows MT5 official package (optional, falls back to mock mode if not present)
+# MetaTrader5>=5.0.45
