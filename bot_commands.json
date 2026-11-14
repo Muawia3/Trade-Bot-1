@@ -1,0 +1,75 @@
+{
+  "_comment": "=== EXNESS MT5 BOT COMMANDS & TRADING RULES ===",
+  "_instructions": "Yahan aap bot ke rules aur commands change kar sakte hain. Bot file save hote hi automatically naye commands utha lega.",
+
+  "general": {
+    "pause_trading": false,
+    "trading_side": "BOTH",
+    "active_symbols": ["XAUUSD", "EURUSD"],
+    "check_interval_seconds": 10
+  },
+
+  "money_and_risk": {
+    "use_fixed_lot": false,
+    "lot_size": 0.01,
+    "risk_percent_per_trade": 1.0,
+    "max_lot_size_limit": 0.50,
+    "min_lot_size_limit": 0.01,
+    "max_open_positions_per_pair": 1,
+    "max_total_open_positions": 2,
+    "max_daily_loss_usd": 50.0,
+    "take_profit_daily_target_usd": 100.0
+  },
+
+  "strategy_settings": {
+    "timeframe": "M5",
+    "fast_ema_period": 20,
+    "slow_ema_period": 50,
+    "trend_ema_period": 200,
+    "rsi_period": 14,
+    "rsi_buy_min": 45.0,
+    "rsi_buy_max": 68.0,
+    "rsi_sell_min": 32.0,
+    "rsi_sell_max": 55.0,
+    "require_trend_ema_filter": true
+  },
+
+  "h4_snr_engulfing_strategy": {
+    "enabled": true,
+    "description": "H4 Support/Resistance Zone + M15/M5 Engulfing (Dynamic Market Structure SL & 1:2 R:R)",
+    "entry_timeframe": "M5",
+    "h4_lookback_candles": 40,
+    "support_resistance_tolerance_pct": 0.25,
+    "require_bullish_engulfing_at_support": true,
+    "require_bearish_engulfing_at_resistance": true,
+    "sl_calculation_mode": "DYNAMIC_MARKET_STRUCTURE",
+    "risk_reward_ratio": 2.0,
+    "structure_sl_buffer_pips": 2.0,
+    "structure_sl_buffer_gold_usd": 0.50,
+    "gold_min_sl_usd": 1.5,
+    "gold_max_sl_usd": 8.0,
+    "forex_min_sl_pips": 10.0,
+    "forex_max_sl_pips": 45.0,
+    "fallback_fixed_gold_sl_usd": 4.0,
+    "fallback_fixed_gold_tp_usd": 8.0,
+    "fallback_fixed_forex_sl_pips": 20.0,
+    "fallback_fixed_forex_tp_pips": 40.0
+  },
+
+  "stop_loss_and_take_profit": {
+    "atr_period": 14,
+    "stop_loss_atr_multiplier": 1.5,
+    "take_profit_atr_multiplier": 3.0,
+    "use_trailing_stop": true,
+    "trailing_activation_pips": 15.0,
+    "trailing_step_pips": 5.0
+  },
+
+  "advanced_filters": {
+    "max_allowed_spread_pips_gold": 6.0,
+    "max_allowed_spread_pips_forex": 3.0,
+    "avoid_weekend_holding": true,
+    "avoid_high_impact_news": true,
+    "active_sessions_only": false
+  }
+}
