@@ -1,6 +1,6 @@
 {
-  "_comment": "=== EXNESS MT5 BOT COMMANDS & TRADING RULES ===",
-  "_instructions": "Yahan aap bot ke rules aur commands change kar sakte hain. Bot file save hote hi automatically naye commands utha lega.",
+  "_comment": "=== EXNESS MT5 BOT ADVANCED COMMANDS & TRADING RULES ===",
+  "_instructions": "Yahan aap bot ke rules change kar sakte hain. Save hote hi bot naye rules live apply kar lega.",
 
   "general": {
     "pause_trading": false,
@@ -17,21 +17,25 @@
     "min_lot_size_limit": 0.01,
     "max_open_positions_per_pair": 1,
     "max_total_open_positions": 2,
-    "max_daily_loss_usd": 50.0,
-    "take_profit_daily_target_usd": 100.0
+    "max_daily_trades": 8,
+    "trade_cooldown_minutes": 25,
+    "max_daily_loss_usd": 30.0,
+    "take_profit_daily_target_usd": 60.0
   },
 
-  "strategy_settings": {
-    "timeframe": "M5",
-    "fast_ema_period": 20,
-    "slow_ema_period": 50,
-    "trend_ema_period": 200,
+  "advanced_strategy": {
+    "strategy_mode": "SMART_MONEY_TREND_PULLBACK",
+    "use_h1_trend_filter": true,
+    "entry_timeframe": "M5",
+    "h1_trend_ema_fast": 50,
+    "h1_trend_ema_slow": 200,
+    "require_pullback_to_ema": true,
     "rsi_period": 14,
-    "rsi_buy_min": 45.0,
-    "rsi_buy_max": 68.0,
-    "rsi_sell_min": 32.0,
-    "rsi_sell_max": 55.0,
-    "require_trend_ema_filter": true
+    "rsi_buy_pullback_max": 54.0,
+    "rsi_buy_pullback_min": 38.0,
+    "rsi_sell_pullback_min": 46.0,
+    "rsi_sell_pullback_max": 62.0,
+    "require_rejection_candle": true
   },
 
   "h4_snr_engulfing_strategy": {
@@ -44,32 +48,34 @@
     "require_bearish_engulfing_at_resistance": true,
     "sl_calculation_mode": "DYNAMIC_MARKET_STRUCTURE",
     "risk_reward_ratio": 2.0,
-    "structure_sl_buffer_pips": 2.0,
-    "structure_sl_buffer_gold_usd": 0.50,
-    "gold_min_sl_usd": 1.5,
-    "gold_max_sl_usd": 8.0,
-    "forex_min_sl_pips": 10.0,
-    "forex_max_sl_pips": 45.0,
-    "fallback_fixed_gold_sl_usd": 4.0,
-    "fallback_fixed_gold_tp_usd": 8.0,
-    "fallback_fixed_forex_sl_pips": 20.0,
-    "fallback_fixed_forex_tp_pips": 40.0
+    "structure_sl_buffer_gold_usd": 0.60,
+    "structure_sl_buffer_pips": 2.5,
+    "gold_min_sl_usd": 2.0,
+    "gold_max_sl_usd": 6.0,
+    "forex_min_sl_pips": 12.0,
+    "forex_max_sl_pips": 35.0
   },
 
-  "stop_loss_and_take_profit": {
-    "atr_period": 14,
-    "stop_loss_atr_multiplier": 1.5,
-    "take_profit_atr_multiplier": 3.0,
+  "profit_protection_and_trailing": {
+    "use_break_even": true,
+    "gold_break_even_trigger_usd": 2.50,
+    "gold_break_even_lock_usd": 0.50,
+    "forex_break_even_trigger_pips": 15.0,
+    "forex_break_even_lock_pips": 2.0,
+
     "use_trailing_stop": true,
-    "trailing_activation_pips": 15.0,
-    "trailing_step_pips": 5.0
+    "gold_trailing_trigger_usd": 4.50,
+    "gold_trailing_distance_usd": 2.00,
+    "forex_trailing_trigger_pips": 25.0,
+    "forex_trailing_distance_pips": 12.0
   },
 
-  "advanced_filters": {
-    "max_allowed_spread_pips_gold": 6.0,
-    "max_allowed_spread_pips_forex": 3.0,
-    "avoid_weekend_holding": true,
-    "avoid_high_impact_news": true,
-    "active_sessions_only": false
+  "filters": {
+    "active_sessions_only": true,
+    "allowed_session_start_utc_hour": 7,
+    "allowed_session_end_utc_hour": 20,
+    "max_allowed_spread_gold_usd": 0.45,
+    "max_allowed_spread_pips_forex": 2.0,
+    "avoid_weekend_holding": true
   }
 }

@@ -5,8 +5,11 @@
 Features:
 - Dynamic Command & Rules Hot-Reloading from bot_commands.json
 - Direct execution in MetaTrader 5 (Exness)
-- EMA Cascades, RSI Momentum, ATR Dynamic SL/TP & Trailing Stop
-- Auto-discovery of Exness symbols (XAUUSDm, EURUSDm, etc.)
+- Institutional H1 Trend + M5 Value Pullback Strategy
+- H4 Support & Resistance Engulfing Strategy (1:2 Dynamic R:R)
+- Smart Break-Even (Risk-Free at 1R) & Breathing Trailing Stop
+- Symbol-Aware Pips & Dollars for Gold and Forex
+- Anti-Overtrading Cooldown & Session Liquidity Filters
 =============================================================================
 """
 
@@ -85,26 +88,26 @@ class CommandManager:
 
                 gen = self.commands.get("general", {})
                 risk = self.commands.get("money_and_risk", {})
-                strat = self.commands.get("strategy_settings", {})
+                strat = self.commands.get("advanced_strategy", self.commands.get("strategy_settings", {}))
 
                 if not initial:
                     logger.info("=" * 65)
                     logger.info("🔄 [COMMANDS UPDATED] Loaded new instructions from bot_commands.json:")
                     logger.info(f"   Active Pairs : {gen.get('active_symbols', ['XAUUSD', 'EURUSD'])}")
                     logger.info(f"   Trading Side : {gen.get('trading_side', 'BOTH')}")
-                    logger.info(f"   Lot Size     : {risk.get('lot_size', 0.01)}")
-                    logger.info(f"   Timeframe    : {strat.get('timeframe', 'M5')}")
+                    logger.info(f"   Lot Sizing   : {'Fixed ' + str(risk.get('lot_size', 0.01)) if risk.get('use_fixed_lot', False) else 'Dynamic ' + str(risk.get('risk_percent_per_trade', 1.0)) + '%'}")
+                    logger.info(f"   Timeframe    : {strat.get('entry_timeframe', 'M5')}")
                     logger.info(f"   Paused       : {gen.get('pause_trading', False)}")
                     logger.info("=" * 65)
                 return True
         except Exception as e:
-            logger.error(f"Failed to read commands file {self.filepath}: {e}")
+            logger.error(f"Error parsing {self.filepath}: {e}")
         return False
 
-    # --- Convenient Property Accessors ---
+    # --- General Getters ---
     @property
     def pause_trading(self) -> bool:
-        return self.commands.get("general", {}).get("pause_trading", False)
+        return bool(self.commands.get("general", {}).get("pause_trading", False))
 
     @property
     def trading_side(self) -> str:
@@ -118,6 +121,7 @@ class CommandManager:
     def check_interval(self) -> int:
         return int(self.commands.get("general", {}).get("check_interval_seconds", 10))
 
+    # --- Money & Risk Management ---
     @property
     def lot_size(self) -> float:
         return float(self.commands.get("money_and_risk", {}).get("lot_size", 0.01))
@@ -147,75 +151,124 @@ class CommandManager:
         return int(self.commands.get("money_and_risk", {}).get("max_total_open_positions", 2))
 
     @property
-    def max_daily_loss(self) -> float:
-        return float(self.commands.get("money_and_risk", {}).get("max_daily_loss_usd", 50.0))
+    def max_daily_trades(self) -> int:
+        return int(self.commands.get("money_and_risk", {}).get("max_daily_trades", 8))
 
     @property
+    def trade_cooldown_minutes(self) -> int:
+        return int(self.commands.get("money_and_risk", {}).get("trade_cooldown_minutes", 25))
+
+    @property
+    def max_daily_loss(self) -> float:
+        return float(self.commands.get("money_and_risk", {}).get("max_daily_loss_usd", 30.0))
+
+    # --- Advanced Strategy Settings ---
+    @property
     def timeframe(self) -> int:
-        tf_str = self.commands.get("strategy_settings", {}).get("timeframe", "M5").upper()
+        strat = self.commands.get("advanced_strategy", self.commands.get("strategy_settings", {}))
+        tf_str = strat.get("entry_timeframe", strat.get("timeframe", "M5")).upper()
         return self.TIMEFRAME_MAP.get(tf_str, mt5.TIMEFRAME_M5)
 
     @property
     def fast_ema(self) -> int:
-        return int(self.commands.get("strategy_settings", {}).get("fast_ema_period", 20))
+        return int(self.commands.get("advanced_strategy", {}).get("fast_ema_period", 20))
 
     @property
     def slow_ema(self) -> int:
-        return int(self.commands.get("strategy_settings", {}).get("slow_ema_period", 50))
+        return int(self.commands.get("advanced_strategy", {}).get("slow_ema_period", 50))
 
     @property
-    def trend_ema(self) -> int:
-        return int(self.commands.get("strategy_settings", {}).get("trend_ema_period", 200))
+    def use_h1_trend_filter(self) -> bool:
+        return bool(self.commands.get("advanced_strategy", {}).get("use_h1_trend_filter", True))
+
+    @property
+    def h1_trend_fast_ema(self) -> int:
+        return int(self.commands.get("advanced_strategy", {}).get("h1_trend_ema_fast", 50))
+
+    @property
+    def h1_trend_slow_ema(self) -> int:
+        return int(self.commands.get("advanced_strategy", {}).get("h1_trend_ema_slow", 200))
 
     @property
     def rsi_period(self) -> int:
-        return int(self.commands.get("strategy_settings", {}).get("rsi_period", 14))
+        strat = self.commands.get("advanced_strategy", self.commands.get("strategy_settings", {}))
+        return int(strat.get("rsi_period", 14))
 
     @property
     def rsi_buy_range(self) -> Tuple[float, float]:
-        cfg = self.commands.get("strategy_settings", {})
-        return float(cfg.get("rsi_buy_min", 45.0)), float(cfg.get("rsi_buy_max", 68.0))
+        cfg = self.commands.get("advanced_strategy", self.commands.get("strategy_settings", {}))
+        return float(cfg.get("rsi_buy_pullback_min", 38.0)), float(cfg.get("rsi_buy_pullback_max", 54.0))
 
     @property
     def rsi_sell_range(self) -> Tuple[float, float]:
-        cfg = self.commands.get("strategy_settings", {})
-        return float(cfg.get("rsi_sell_min", 32.0)), float(cfg.get("rsi_sell_max", 55.0))
-
-    @property
-    def require_trend_ema(self) -> bool:
-        return bool(self.commands.get("strategy_settings", {}).get("require_trend_ema_filter", True))
+        cfg = self.commands.get("advanced_strategy", self.commands.get("strategy_settings", {}))
+        return float(cfg.get("rsi_sell_pullback_min", 46.0)), float(cfg.get("rsi_sell_pullback_max", 62.0))
 
     @property
     def atr_period(self) -> int:
-        return int(self.commands.get("stop_loss_and_take_profit", {}).get("atr_period", 14))
+        return int(self.commands.get("advanced_strategy", {}).get("atr_period", 14))
+
+    # --- Profit Protection (Break-Even & Trailing Stop) ---
+    @property
+    def use_break_even(self) -> bool:
+        return bool(self.commands.get("profit_protection_and_trailing", {}).get("use_break_even", True))
 
     @property
-    def sl_atr_multiplier(self) -> float:
-        return float(self.commands.get("stop_loss_and_take_profit", {}).get("stop_loss_atr_multiplier", 1.5))
+    def gold_be_trigger(self) -> float:
+        return float(self.commands.get("profit_protection_and_trailing", {}).get("gold_break_even_trigger_usd", 2.50))
 
     @property
-    def tp_atr_multiplier(self) -> float:
-        return float(self.commands.get("stop_loss_and_take_profit", {}).get("take_profit_atr_multiplier", 3.0))
+    def gold_be_lock(self) -> float:
+        return float(self.commands.get("profit_protection_and_trailing", {}).get("gold_break_even_lock_usd", 0.50))
+
+    @property
+    def forex_be_trigger(self) -> float:
+        return float(self.commands.get("profit_protection_and_trailing", {}).get("forex_break_even_trigger_pips", 15.0))
+
+    @property
+    def forex_be_lock(self) -> float:
+        return float(self.commands.get("profit_protection_and_trailing", {}).get("forex_break_even_lock_pips", 2.0))
 
     @property
     def use_trailing_stop(self) -> bool:
-        return bool(self.commands.get("stop_loss_and_take_profit", {}).get("use_trailing_stop", True))
+        return bool(self.commands.get("profit_protection_and_trailing", {}).get("use_trailing_stop", True))
 
     @property
-    def trailing_start_pips(self) -> float:
-        return float(self.commands.get("stop_loss_and_take_profit", {}).get("trailing_activation_pips", 15.0))
+    def gold_trailing_trigger(self) -> float:
+        return float(self.commands.get("profit_protection_and_trailing", {}).get("gold_trailing_trigger_usd", 4.50))
 
     @property
-    def trailing_step_pips(self) -> float:
-        return float(self.commands.get("stop_loss_and_take_profit", {}).get("trailing_step_pips", 5.0))
+    def gold_trailing_dist(self) -> float:
+        return float(self.commands.get("profit_protection_and_trailing", {}).get("gold_trailing_distance_usd", 2.00))
+
+    @property
+    def forex_trailing_trigger(self) -> float:
+        return float(self.commands.get("profit_protection_and_trailing", {}).get("forex_trailing_trigger_pips", 25.0))
+
+    @property
+    def forex_trailing_dist(self) -> float:
+        return float(self.commands.get("profit_protection_and_trailing", {}).get("forex_trailing_distance_pips", 12.0))
+
+    # --- Filters ---
+    @property
+    def active_sessions_only(self) -> bool:
+        return bool(self.commands.get("filters", {}).get("active_sessions_only", True))
+
+    @property
+    def session_start_utc(self) -> int:
+        return int(self.commands.get("filters", {}).get("allowed_session_start_utc_hour", 7))
+
+    @property
+    def session_end_utc(self) -> int:
+        return int(self.commands.get("filters", {}).get("allowed_session_end_utc_hour", 20))
 
     @property
     def max_spread_gold(self) -> float:
-        return float(self.commands.get("advanced_filters", {}).get("max_allowed_spread_pips_gold", 6.0))
+        return float(self.commands.get("filters", {}).get("max_allowed_spread_gold_usd", 0.45))
 
     @property
     def max_spread_forex(self) -> float:
-        return float(self.commands.get("advanced_filters", {}).get("max_allowed_spread_pips_forex", 3.0))
+        return float(self.commands.get("filters", {}).get("max_allowed_spread_pips_forex", 2.0))
 
     # --- H4 S&R Engulfing Strategy Settings ---
     @property
@@ -245,43 +298,35 @@ class CommandManager:
 
     @property
     def structure_sl_buffer_pips(self) -> float:
-        return float(self.commands.get("h4_snr_engulfing_strategy", {}).get("structure_sl_buffer_pips", 2.0))
+        return float(self.commands.get("h4_snr_engulfing_strategy", {}).get("structure_sl_buffer_pips", 2.5))
 
     @property
     def structure_sl_buffer_gold_usd(self) -> float:
-        return float(self.commands.get("h4_snr_engulfing_strategy", {}).get("structure_sl_buffer_gold_usd", 0.50))
+        return float(self.commands.get("h4_snr_engulfing_strategy", {}).get("structure_sl_buffer_gold_usd", 0.60))
 
     @property
     def gold_min_sl_usd(self) -> float:
-        return float(self.commands.get("h4_snr_engulfing_strategy", {}).get("gold_min_sl_usd", 1.5))
+        return float(self.commands.get("h4_snr_engulfing_strategy", {}).get("gold_min_sl_usd", 2.0))
 
     @property
     def gold_max_sl_usd(self) -> float:
-        return float(self.commands.get("h4_snr_engulfing_strategy", {}).get("gold_max_sl_usd", 8.0))
+        return float(self.commands.get("h4_snr_engulfing_strategy", {}).get("gold_max_sl_usd", 6.0))
 
     @property
     def forex_min_sl_pips(self) -> float:
-        return float(self.commands.get("h4_snr_engulfing_strategy", {}).get("forex_min_sl_pips", 10.0))
+        return float(self.commands.get("h4_snr_engulfing_strategy", {}).get("forex_min_sl_pips", 12.0))
 
     @property
     def forex_max_sl_pips(self) -> float:
-        return float(self.commands.get("h4_snr_engulfing_strategy", {}).get("forex_max_sl_pips", 45.0))
+        return float(self.commands.get("h4_snr_engulfing_strategy", {}).get("forex_max_sl_pips", 35.0))
 
     @property
-    def gold_sl_usd(self) -> float:
-        return float(self.commands.get("h4_snr_engulfing_strategy", {}).get("fallback_fixed_gold_sl_usd", self.commands.get("h4_snr_engulfing_strategy", {}).get("gold_sl_usd", 4.0)))
+    def gold_fallback_sl_usd(self) -> float:
+        return float(self.commands.get("h4_snr_engulfing_strategy", {}).get("gold_fallback_sl_usd", 3.5))
 
     @property
-    def gold_tp_usd(self) -> float:
-        return float(self.commands.get("h4_snr_engulfing_strategy", {}).get("fallback_fixed_gold_tp_usd", self.commands.get("h4_snr_engulfing_strategy", {}).get("gold_tp_usd", 8.0)))
-
-    @property
-    def forex_sl_pips(self) -> float:
-        return float(self.commands.get("h4_snr_engulfing_strategy", {}).get("fallback_fixed_forex_sl_pips", self.commands.get("h4_snr_engulfing_strategy", {}).get("forex_sl_pips", 20.0)))
-
-    @property
-    def forex_tp_pips(self) -> float:
-        return float(self.commands.get("h4_snr_engulfing_strategy", {}).get("fallback_fixed_forex_tp_pips", self.commands.get("h4_snr_engulfing_strategy", {}).get("forex_tp_pips", 40.0)))
+    def forex_fallback_sl_pips(self) -> float:
+        return float(self.commands.get("h4_snr_engulfing_strategy", {}).get("forex_fallback_sl_pips", 20.0))
 
 
 cmd_manager = CommandManager()
@@ -299,20 +344,18 @@ class SymbolManager:
     def discover_symbols(self, target_pairs: List[str]) -> Dict[str, str]:
         all_symbols = mt5.symbols_get()
         if not all_symbols:
-            logger.error("Could not fetch symbols from MT5 terminal.")
+            logger.error("Could not fetch symbol list from MT5.")
             return {}
 
         available_names = {s.name for s in all_symbols}
-        self.symbol_map.clear()
 
         for base in target_pairs:
             candidates = [
                 base,
-                f"{base}m",       # Exness Standard
-                f"{base}c",       # Exness Cent
-                f"{base}r",       # Exness Raw Spread
-                f"{base}z",       # Exness Zero
-                f"{base}.a",
+                f"{base}m",
+                f"{base}.m",
+                f"{base}_i",
+                f"{base}c",
                 f"{base}+",
             ]
             found = None
@@ -341,7 +384,7 @@ class SymbolManager:
 # TECHNICAL STRATEGY ENGINE
 # =============================================================================
 class StrategyEngine:
-    """Evaluates market data using rules from CommandManager."""
+    """Evaluates market data using institutional rules from CommandManager."""
 
     @staticmethod
     def get_candles(symbol: str, timeframe: int, count: int = 150) -> Optional[pd.DataFrame]:
@@ -356,7 +399,6 @@ class StrategyEngine:
     def calculate_indicators(df: pd.DataFrame) -> pd.DataFrame:
         df["ema_fast"] = df["close"].ewm(span=cmd_manager.fast_ema, adjust=False).mean()
         df["ema_slow"] = df["close"].ewm(span=cmd_manager.slow_ema, adjust=False).mean()
-        df["ema_trend"] = df["close"].ewm(span=cmd_manager.trend_ema, adjust=False).mean()
 
         delta = df["close"].diff()
         gain = delta.clip(lower=0)
@@ -376,7 +418,6 @@ class StrategyEngine:
 
     @classmethod
     def get_h4_support_resistance(cls, symbol: str, lookback: int = 40) -> Tuple[List[float], List[float]]:
-        """Identify key H4 Support and Resistance levels from swing points."""
         rates = mt5.copy_rates_from_pos(symbol, mt5.TIMEFRAME_H4, 0, lookback)
         if rates is None or len(rates) < 10:
             return [], []
@@ -401,7 +442,6 @@ class StrategyEngine:
 
     @staticmethod
     def detect_engulfing(df: pd.DataFrame) -> Tuple[bool, bool]:
-        """Detect Bullish or Bearish Engulfing pattern on the last 2 completed candles."""
         if len(df) < 3:
             return False, False
 
@@ -422,7 +462,7 @@ class StrategyEngine:
 
     @classmethod
     def evaluate(cls, symbol: str) -> Tuple[str, str, float, str, Dict[str, Any]]:
-        # 1. Check H4 Support/Resistance + M15/M5 Engulfing Strategy
+        # 1. Strategy 1: H4 Support/Resistance + M15/M5 Engulfing Strategy
         if cmd_manager.h4_snr_enabled:
             supports, resistances = cls.get_h4_support_resistance(symbol, cmd_manager.h4_lookback)
             tick = mt5.symbol_info_tick(symbol)
@@ -456,7 +496,7 @@ class StrategyEngine:
                                 "support": near_support,
                                 "pattern_low": pat_low
                             }
-                            reason = f"H4 Support Zone ({near_support:.2f}) + Bullish Engulfing (Low: {pat_low:.2f})! Dynamic Market SL & 1:{cmd_manager.risk_reward_ratio:.1f} R:R"
+                            reason = f"H4 Support Zone ({near_support:.2f}) + Bullish Engulfing (Low: {pat_low:.2f})! 1:2 R:R"
                             return "BUY", reason, 0.0, "H4_SNR", struct_meta
 
                     if near_resistance and is_bear_engulf:
@@ -468,10 +508,10 @@ class StrategyEngine:
                                 "resistance": near_resistance,
                                 "pattern_high": pat_high
                             }
-                            reason = f"H4 Resistance Zone ({near_resistance:.2f}) + Bearish Engulfing (High: {pat_high:.2f})! Dynamic Market SL & 1:{cmd_manager.risk_reward_ratio:.1f} R:R"
+                            reason = f"H4 Resistance Zone ({near_resistance:.2f}) + Bearish Engulfing (High: {pat_high:.2f})! 1:2 R:R"
                             return "SELL", reason, 0.0, "H4_SNR", struct_meta
 
-        # 2. Regular EMA Cascade + RSI Strategy
+        # 2. Strategy 2: Institutional H1 Trend Bias + M5 Value Pullback
         df = cls.get_candles(symbol, cmd_manager.timeframe, 150)
         if df is None or len(df) < 60:
             return "HOLD", "Insufficient candle data", 0.0, "NONE", {}
@@ -483,37 +523,52 @@ class StrategyEngine:
         cur_price = last["close"]
         ema_fast = last["ema_fast"]
         ema_slow = last["ema_slow"]
-        ema_trend = last["ema_trend"]
         rsi = last["rsi"]
         atr = last["atr"] if not math.isnan(last["atr"]) else 0.0
 
         if math.isnan(ema_fast) or math.isnan(ema_slow) or math.isnan(rsi) or atr == 0.0:
             return "HOLD", "Indicators initializing", 0.0, "NONE", {}
 
+        # Higher Timeframe (H1) Trend Anchor
+        h1_bullish = True
+        h1_bearish = True
+        if cmd_manager.use_h1_trend_filter:
+            h1_df = cls.get_candles(symbol, mt5.TIMEFRAME_H1, 220)
+            if h1_df is not None and len(h1_df) >= 200:
+                h1_fast = h1_df["close"].ewm(span=cmd_manager.h1_trend_fast_ema, adjust=False).mean().iloc[-1]
+                h1_slow = h1_df["close"].ewm(span=cmd_manager.h1_trend_slow_ema, adjust=False).mean().iloc[-1]
+                h1_close = h1_df["close"].iloc[-1]
+                h1_bullish = (h1_close > h1_fast) and (h1_fast > h1_slow)
+                h1_bearish = (h1_close < h1_fast) and (h1_fast < h1_slow)
+
+        # M5 Value Pullback & Rejection Confirmation
+        candle_bullish = (last["close"] > last["open"])
+        candle_bearish = (last["close"] < last["open"])
+
         rsi_buy_min, rsi_buy_max = cmd_manager.rsi_buy_range
         rsi_sell_min, rsi_sell_max = cmd_manager.rsi_sell_range
 
-        # BUY CONDITION
-        buy_trend = ema_fast > ema_slow and cur_price > ema_fast
-        if cmd_manager.require_trend_ema:
-            buy_trend = buy_trend and cur_price > ema_trend
+        # BUY PULLBACK: H1 Bullish + M5 fast > slow + Low touched EMA + RSI in discount + Bullish Rejection
+        buy_pullback = h1_bullish and (ema_fast > ema_slow) and \
+                       (last["low"] <= ema_fast * 1.0015) and \
+                       (rsi_buy_min <= rsi <= rsi_buy_max) and candle_bullish
 
-        if buy_trend and (rsi_buy_min <= rsi <= rsi_buy_max):
+        # SELL PULLBACK: H1 Bearish + M5 fast < slow + High touched EMA + RSI in premium + Bearish Rejection
+        sell_pullback = h1_bearish and (ema_fast < ema_slow) and \
+                        (last["high"] >= ema_fast * 0.9985) and \
+                        (rsi_sell_min <= rsi <= rsi_sell_max) and candle_bearish
+
+        if buy_pullback:
             if cmd_manager.trading_side in ("BOTH", "BUY_ONLY"):
-                reason = f"Uptrend (EMA{cmd_manager.fast_ema}={ema_fast:.2f} > EMA{cmd_manager.slow_ema}={ema_slow:.2f}), RSI={rsi:.1f} Bullish"
-                return "BUY", reason, atr, "EMA_RSI", {}
+                reason = f"Institutional H1 Bullish + M5 Pullback into EMA{cmd_manager.fast_ema} ({ema_fast:.2f}) + RSI Discount ({rsi:.1f}) + Green Rejection"
+                return "BUY", reason, atr, "INST_TREND", {}
 
-        # SELL CONDITION
-        sell_trend = ema_fast < ema_slow and cur_price < ema_fast
-        if cmd_manager.require_trend_ema:
-            sell_trend = sell_trend and cur_price < ema_trend
-
-        if sell_trend and (rsi_sell_min <= rsi <= rsi_sell_max):
+        if sell_pullback:
             if cmd_manager.trading_side in ("BOTH", "SELL_ONLY"):
-                reason = f"Downtrend (EMA{cmd_manager.fast_ema}={ema_fast:.2f} < EMA{cmd_manager.slow_ema}={ema_slow:.2f}), RSI={rsi:.1f} Bearish"
-                return "SELL", reason, atr, "EMA_RSI", {}
+                reason = f"Institutional H1 Bearish + M5 Rally into EMA{cmd_manager.fast_ema} ({ema_fast:.2f}) + RSI Premium ({rsi:.1f}) + Red Rejection"
+                return "SELL", reason, atr, "INST_TREND", {}
 
-        return "HOLD", f"Neutral. EMA_Fast={ema_fast:.2f}, EMA_Slow={ema_slow:.2f}, RSI={rsi:.1f}", atr, "NONE", {}
+        return "HOLD", f"Neutral. H1 Bullish={h1_bullish}, RSI={rsi:.1f}, EMA_Fast={ema_fast:.2f}", atr, "NONE", {}
 
 
 # =============================================================================
@@ -563,19 +618,16 @@ class OrderExecutor:
 
     @classmethod
     def is_market_open(cls, symbol: str) -> bool:
-        """Check if trading is currently open for the symbol."""
         info = mt5.symbol_info(symbol)
         if not info or info.trade_mode == mt5.SYMBOL_TRADE_MODE_DISABLED:
             return False
 
-        # Crypto (BTC, ETH) trades 24/7 on Exness
         is_crypto = any(c in symbol.upper() for c in ["BTC", "ETH", "LTC", "XRP", "SOL"])
         if is_crypto:
             return True
 
-        # Forex and Gold are closed on weekends (Saturday and Sunday until market open)
         now_utc = datetime.now(timezone.utc)
-        weekday = now_utc.weekday()  # 5 = Saturday, 6 = Sunday
+        weekday = now_utc.weekday()
         if weekday == 5:
             return False
         if weekday == 6 and now_utc.hour < 22:
@@ -592,15 +644,21 @@ class OrderExecutor:
         if not tick or not info:
             return False
 
-        spread_pips = (tick.ask - tick.bid) / (info.point * 10)
-        limit = cmd_manager.max_spread_gold if "XAU" in symbol else cmd_manager.max_spread_forex
-        if spread_pips > limit:
-            logger.warning(f"Spread on {symbol} is {spread_pips:.1f} pips (Limit: {limit:.1f}). Skipping.")
-            return False
+        is_gold = "XAU" in symbol.upper()
+        if is_gold:
+            spread_usd = tick.ask - tick.bid
+            if spread_usd > cmd_manager.max_spread_gold:
+                logger.warning(f"Spread on Gold {symbol} is ${spread_usd:.3f} (Limit: ${cmd_manager.max_spread_gold:.2f}). Skipping.")
+                return False
+        else:
+            spread_pips = (tick.ask - tick.bid) / (info.point * 10)
+            if spread_pips > cmd_manager.max_spread_forex:
+                logger.warning(f"Spread on {symbol} is {spread_pips:.1f} pips (Limit: {cmd_manager.max_spread_forex:.1f}). Skipping.")
+                return False
         return True
 
     @classmethod
-    def open_trade(cls, symbol: str, side: str, atr: float, reason: str, strategy_type: str = "EMA_RSI", struct_info: Optional[Dict[str, Any]] = None) -> bool:
+    def open_trade(cls, symbol: str, side: str, atr: float, reason: str, strategy_type: str = "INST_TREND", struct_info: Optional[Dict[str, Any]] = None) -> bool:
         if not cls.check_spread_allowed(symbol):
             return False
 
@@ -626,7 +684,7 @@ class OrderExecutor:
             inval = struct_info.get("invalidation_price")
             if side == "BUY":
                 buffer = cmd_manager.structure_sl_buffer_gold_usd if is_gold else (cmd_manager.structure_sl_buffer_pips * point * 10)
-                target_sl = (inval - buffer) if inval else (tick.ask - (cmd_manager.gold_sl_usd if is_gold else cmd_manager.forex_sl_pips * point * 10))
+                target_sl = (inval - buffer) if inval else (tick.ask - (cmd_manager.gold_fallback_sl_usd if is_gold else cmd_manager.forex_fallback_sl_pips * point * 10))
                 sl_distance = tick.ask - target_sl
                 if is_gold:
                     sl_distance = max(cmd_manager.gold_min_sl_usd, min(sl_distance, cmd_manager.gold_max_sl_usd))
@@ -641,7 +699,7 @@ class OrderExecutor:
                 tp = round(price + tp_distance, digits)
             else:  # SELL
                 buffer = cmd_manager.structure_sl_buffer_gold_usd if is_gold else (cmd_manager.structure_sl_buffer_pips * point * 10)
-                target_sl = (inval + buffer) if inval else (tick.bid + (cmd_manager.gold_sl_usd if is_gold else cmd_manager.forex_sl_pips * point * 10))
+                target_sl = (inval + buffer) if inval else (tick.bid + (cmd_manager.gold_fallback_sl_usd if is_gold else cmd_manager.forex_fallback_sl_pips * point * 10))
                 sl_distance = target_sl - tick.bid
                 if is_gold:
                     sl_distance = max(cmd_manager.gold_min_sl_usd, min(sl_distance, cmd_manager.gold_max_sl_usd))
@@ -654,28 +712,15 @@ class OrderExecutor:
                 price = tick.bid
                 sl = round(price + sl_distance, digits)
                 tp = round(price - tp_distance, digits)
-        elif strategy_type == "H4_SNR":
-            # Fallback Fixed SL & 1:2 R:R
-            if is_gold:
-                sl_distance = max(cmd_manager.gold_sl_usd, min_stop_dist)
-            else:
-                sl_distance = max(cmd_manager.forex_sl_pips * point * 10, min_stop_dist)
-            tp_distance = sl_distance * cmd_manager.risk_reward_ratio
-
-            if side == "BUY":
-                order_type = mt5.ORDER_TYPE_BUY
-                price = tick.ask
-                sl = round(price - sl_distance, digits)
-                tp = round(price + tp_distance, digits)
-            else:
-                order_type = mt5.ORDER_TYPE_SELL
-                price = tick.bid
-                sl = round(price + sl_distance, digits)
-                tp = round(price - tp_distance, digits)
         else:
-            # Regular EMA + RSI (ATR based)
-            sl_distance = max(atr * cmd_manager.sl_atr_multiplier, min_stop_dist)
-            tp_distance = max(atr * cmd_manager.tp_atr_multiplier, sl_distance * 2.0)
+            # Institutional Trend Pullback (1.8 ATR with sanity bounds, 1:2 R:R)
+            sl_distance = max(atr * 1.8, min_stop_dist)
+            if is_gold:
+                sl_distance = max(cmd_manager.gold_min_sl_usd, min(sl_distance, cmd_manager.gold_max_sl_usd))
+            else:
+                sl_distance = max(cmd_manager.forex_min_sl_pips * point * 10, min(sl_distance, cmd_manager.forex_max_sl_pips * point * 10))
+
+            tp_distance = sl_distance * 2.0  # Strict 1:2 Risk to Reward
             if side == "BUY":
                 order_type = mt5.ORDER_TYPE_BUY
                 price = tick.ask
@@ -699,12 +744,11 @@ class OrderExecutor:
             "tp": tp,
             "deviation": 25,
             "magic": cls.MAGIC_NUMBER,
-            "comment": "ExnessCmdBot",
+            "comment": "ExnessInstBot",
             "type_time": mt5.ORDER_TIME_GTC,
             "type_filling": mt5.ORDER_FILLING_IOC,
         }
 
-        # Check broker filling mode
         filling_mode = info.filling_mode
         if filling_mode & 1:
             request["type_filling"] = mt5.ORDER_FILLING_FOK
@@ -717,57 +761,69 @@ class OrderExecutor:
         logger.info(f"    Reason: {reason}")
 
         result = mt5.order_send(request)
-
-        if result is None:
-            logger.error(f"Order failed: {mt5.last_error()}")
+        if not result or result.retcode != mt5.TRADE_RETCODE_DONE:
+            error_code = result.retcode if result else mt5.last_error()
+            logger.error(f"❌ Order failed! Code: {error_code} | Comment: {result.comment if result else ''}")
             return False
-
-        if result.retcode != mt5.TRADE_RETCODE_DONE:
-            logger.warning(f"Direct order returned {result.retcode} ({result.comment}). Trying Market deal...")
-            # Fallback for Market Execution accounts
-            request["sl"] = 0.0
-            request["tp"] = 0.0
-            result = mt5.order_send(request)
-            if result and result.retcode == mt5.TRADE_RETCODE_DONE:
-                logger.info(f"Market deal filled (#{result.deal}). Modifying SL/TP...")
-                cls._modify_position_sl(result.order, sl, tp)
-                return True
-            else:
-                logger.error(f"Order rejected: {result.comment if result else 'Unknown'}")
-                return False
 
         logger.info(f"✅ [ORDER EXECUTED] Deal Ticket: #{result.deal} | Order Ticket: #{result.order} | Price: {result.price}")
         return True
 
     @classmethod
-    def manage_trailing_stop(cls, symbol: str):
-        if not cmd_manager.use_trailing_stop:
-            return
-
+    def manage_profit_protection_and_trailing(cls, symbol: str):
+        """
+        Symbol-aware Profit Protection:
+        1. Break-Even: Locks in risk-free trade at 1R profit (+0.50 USD on Gold / +2 pips on Forex).
+        2. Breathing Trailing Stop: Only activates at $4.50+ on Gold, trailing $2.00 behind price.
+        """
         positions = cls.get_open_positions(symbol)
         info = mt5.symbol_info(symbol)
         tick = mt5.symbol_info_tick(symbol)
         if not info or not positions or not tick:
             return
 
-        point = info.point
+        is_gold = "XAU" in symbol.upper()
         digits = info.digits
+        point = info.point
+
+        be_trigger = cmd_manager.gold_be_trigger if is_gold else (cmd_manager.forex_be_trigger * point * 10)
+        be_lock = cmd_manager.gold_be_lock if is_gold else (cmd_manager.forex_be_lock * point * 10)
+        trail_trigger = cmd_manager.gold_trailing_trigger if is_gold else (cmd_manager.forex_trailing_trigger * point * 10)
+        trail_dist = cmd_manager.gold_trailing_dist if is_gold else (cmd_manager.forex_trailing_dist * point * 10)
 
         for pos in positions:
             if pos.type == mt5.ORDER_TYPE_BUY:
-                profit_pips = (tick.bid - pos.price_open) / (point * 10)
-                if profit_pips >= cmd_manager.trailing_start_pips:
-                    new_sl = round(tick.bid - (cmd_manager.trailing_step_pips * point * 10), digits)
+                profit_dist = tick.bid - pos.price_open
+
+                # 1. Break-Even
+                if cmd_manager.use_break_even and profit_dist >= be_trigger:
+                    be_sl = round(pos.price_open + be_lock, digits)
+                    if pos.sl < be_sl:
+                        logger.info(f"🛡️ [BREAK-EVEN ACTIVATED] BUY #{pos.ticket} SL moved to {be_sl} (Locked +${round(be_lock, 2)}, 100% Risk Free!)")
+                        cls._modify_position_sl(pos.ticket, be_sl, pos.tp)
+
+                # 2. Breathing Trailing Stop
+                if cmd_manager.use_trailing_stop and profit_dist >= trail_trigger:
+                    new_sl = round(tick.bid - trail_dist, digits)
                     if new_sl > pos.sl and new_sl > pos.price_open:
-                        logger.info(f"📈 [TRAILING STOP] Moving BUY #{pos.ticket} SL to {new_sl} (Locking Profit)")
+                        logger.info(f"📈 [TRAILING STOP] BUY #{pos.ticket} SL moved to {new_sl} (Locked Profit: +${round(new_sl - pos.price_open, 2)})")
                         cls._modify_position_sl(pos.ticket, new_sl, pos.tp)
 
             elif pos.type == mt5.ORDER_TYPE_SELL:
-                profit_pips = (pos.price_open - tick.ask) / (point * 10)
-                if profit_pips >= cmd_manager.trailing_start_pips:
-                    new_sl = round(tick.ask + (cmd_manager.trailing_step_pips * point * 10), digits)
+                profit_dist = pos.price_open - tick.ask
+
+                # 1. Break-Even
+                if cmd_manager.use_break_even and profit_dist >= be_trigger:
+                    be_sl = round(pos.price_open - be_lock, digits)
+                    if pos.sl == 0.0 or pos.sl > be_sl:
+                        logger.info(f"🛡️ [BREAK-EVEN ACTIVATED] SELL #{pos.ticket} SL moved to {be_sl} (Locked +${round(be_lock, 2)}, 100% Risk Free!)")
+                        cls._modify_position_sl(pos.ticket, be_sl, pos.tp)
+
+                # 2. Breathing Trailing Stop
+                if cmd_manager.use_trailing_stop and profit_dist >= trail_trigger:
+                    new_sl = round(tick.ask + trail_dist, digits)
                     if (pos.sl == 0.0 or new_sl < pos.sl) and new_sl < pos.price_open:
-                        logger.info(f"📉 [TRAILING STOP] Moving SELL #{pos.ticket} SL to {new_sl} (Locking Profit)")
+                        logger.info(f"📉 [TRAILING STOP] SELL #{pos.ticket} SL moved to {new_sl} (Locked Profit: +${round(pos.price_open - new_sl, 2)})")
                         cls._modify_position_sl(pos.ticket, new_sl, pos.tp)
 
     @staticmethod
@@ -780,7 +836,7 @@ class OrderExecutor:
         }
         res = mt5.order_send(request)
         if res and res.retcode == mt5.TRADE_RETCODE_DONE:
-            logger.info(f"SL/TP successfully updated on ticket #{ticket}")
+            logger.info(f"  SL successfully modified on ticket #{ticket} to {new_sl}")
 
 
 # =============================================================================
@@ -792,17 +848,17 @@ class ExnessAutoBot:
     def __init__(self):
         self.symbol_manager = SymbolManager()
         self.active_symbols: Dict[str, str] = {}
+        self.last_trade_times: Dict[str, float] = {}
         self.is_running = False
 
     def initialize(self) -> bool:
         logger.info("=" * 65)
-        logger.info("   EXNESS MT5 DIRECT AUTO-TRADING BOT")
+        logger.info("   EXNESS MT5 DIRECT AUTO-TRADING BOT v2.0")
         logger.info("=" * 65)
 
         logger.info("Connecting to MetaTrader 5...")
         if not mt5.initialize():
             logger.error(f"MT5 initialization failed! Error code: {mt5.last_error()}")
-            logger.info("Please ensure Exness MetaTrader 5 desktop application is open and logged in.")
             return False
 
         account = mt5.account_info()
@@ -819,16 +875,23 @@ class ExnessAutoBot:
         logger.info(f"   Balance       : ${account.balance:.2f} {account.currency}")
         logger.info(f"   Equity        : ${account.equity:.2f} {account.currency}")
         logger.info(f"   Leverage      : 1:{account.leverage}")
-        logger.info(f"   Algo Trading  : {'ENABLED' if terminal.trade_allowed else 'DISABLED ⚠️ (Enable Algo Trading in MT5)'}")
+        logger.info(f"   Algo Trading  : {'ENABLED' if terminal.trade_allowed else 'DISABLED ⚠️'}")
         logger.info("-" * 65)
 
-        # Discover symbols specified in bot_commands.json
         self.active_symbols = self.symbol_manager.discover_symbols(cmd_manager.active_symbols)
         if not self.active_symbols:
             logger.error("No trading symbols matched. Exiting.")
             return False
 
         return True
+
+    def get_today_trades_count(self) -> int:
+        now = datetime.now()
+        start_of_day = datetime(now.year, now.month, now.day)
+        deals = mt5.history_deals_get(start_of_day, now)
+        if not deals:
+            return 0
+        return sum(1 for d in deals if d.entry == 1 and d.magic == OrderExecutor.MAGIC_NUMBER)
 
     def run(self):
         self.is_running = True
@@ -838,9 +901,8 @@ class ExnessAutoBot:
 
         try:
             while self.is_running:
-                # 1. Hot-reload bot_commands.json if changed
+                # 1. Hot-reload bot_commands.json
                 if cmd_manager.load():
-                    # Re-sync symbol discovery if active_symbols changed
                     self.active_symbols = self.symbol_manager.discover_symbols(cmd_manager.active_symbols)
 
                 account = mt5.account_info()
@@ -850,20 +912,37 @@ class ExnessAutoBot:
 
                 total_open = len(OrderExecutor.get_open_positions())
 
-                # Loop through target instruments
-                for base_name, actual_symbol in self.active_symbols.items():
-                    # Manage Trailing Stops on open positions
-                    OrderExecutor.manage_trailing_stop(actual_symbol)
+                # Session Filter Check (London & New York Sessions)
+                if cmd_manager.active_sessions_only:
+                    now_utc = datetime.now(timezone.utc)
+                    if now_utc.hour < cmd_manager.session_start_utc or now_utc.hour >= cmd_manager.session_end_utc:
+                        time.sleep(cmd_manager.check_interval)
+                        continue
 
-                    # Check if market is open (Forex/Gold closed on weekends, Crypto open 24/7)
+                # Daily Trades Limit (Anti-Overtrading)
+                today_trades = self.get_today_trades_count()
+                if today_trades >= cmd_manager.max_daily_trades:
+                    time.sleep(cmd_manager.check_interval)
+                    continue
+
+                for base_name, actual_symbol in self.active_symbols.items():
+                    # 1. Always manage Profit Protection & Breathing Trailing
+                    OrderExecutor.manage_profit_protection_and_trailing(actual_symbol)
+
+                    # Market open check
                     if not OrderExecutor.is_market_open(actual_symbol):
                         continue
 
-                    # Check Pause flag from bot_commands.json
+                    # Pause check
                     if cmd_manager.pause_trading:
                         continue
 
-                    # Check max open positions
+                    # Cooldown check
+                    last_time = self.last_trade_times.get(actual_symbol, 0)
+                    if time.time() - last_time < cmd_manager.trade_cooldown_minutes * 60:
+                        continue
+
+                    # Max open positions check
                     symbol_positions = OrderExecutor.get_open_positions(actual_symbol)
                     if len(symbol_positions) >= cmd_manager.max_open_per_pair:
                         continue
@@ -871,7 +950,7 @@ class ExnessAutoBot:
                     if total_open >= cmd_manager.max_total_open:
                         continue
 
-                    # Evaluate Strategy Signals (Returns signal, reason, atr, strategy_type, struct_info)
+                    # Evaluate Strategy Signals
                     signal, reason, atr, strat_type, struct_info = StrategyEngine.evaluate(actual_symbol)
 
                     tick = mt5.symbol_info_tick(actual_symbol)
@@ -879,9 +958,11 @@ class ExnessAutoBot:
 
                     now_str = datetime.now().strftime("%H:%M:%S")
                     if signal in ("BUY", "SELL"):
-                        logger.info(f"[{now_str}] 🎯 SIGNAL DETECTED: {base_name} ({actual_symbol}) -> {signal} | Strategy: {strat_type} | Rate: {bid_price:.2f}")
+                        logger.info(f"[{now_str}] 🎯 SIGNAL: {base_name} ({actual_symbol}) -> {signal} | Strategy: {strat_type} | Rate: {bid_price:.2f}")
                         logger.info(f"         Reason: {reason}")
-                        OrderExecutor.open_trade(actual_symbol, signal, atr, reason, strategy_type=strat_type, struct_info=struct_info)
+                        success = OrderExecutor.open_trade(actual_symbol, signal, atr, reason, strategy_type=strat_type, struct_info=struct_info)
+                        if success:
+                            self.last_trade_times[actual_symbol] = time.time()
 
                 time.sleep(cmd_manager.check_interval)
 

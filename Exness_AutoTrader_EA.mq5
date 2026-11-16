@@ -1,13 +1,14 @@
 //+------------------------------------------------------------------+
 //|                                     Exness_AutoTrader_EA.mq5     |
 //|               Professional Auto-Trading Bot for MT5 / Exness     |
-//|                                  Instruments: XAUUSD & EURUSD    |
+//|                 Instruments: XAUUSD (Gold) & EURUSD (Forex)      |
+//|         Version 2.0: Institutional Trend, Smart BE & Trailing    |
 //+------------------------------------------------------------------+
-#property copyright "Exness AutoTrader"
+#property copyright "Exness AutoTrader Institutional"
 #property link      "https://www.exness.com"
-#property version   "1.30"
-#property description "Automated Quantitative Forex & Gold Trading Robot for Exness MT5."
-#property description "Features: H4 S&R + M15/M5 Engulfing (1:2 R:R), EMA Cascades, RSI Filter, and Trailing Stop."
+#property version   "2.00"
+#property description "Advanced Quantitative Trading Robot for Exness MT5."
+#property description "Features: H4 S&R + Engulfing, H1 Trend Pullback, Smart Break-Even, Breathing Trailing Stop."
 
 #include <Trade\Trade.mqh>
 #include <Trade\SymbolInfo.mqh>
@@ -15,44 +16,67 @@
 #include <Trade\AccountInfo.mqh>
 
 //--- Input Parameters ---
-input group "=== Risk & Money Management ==="
-input bool     InpUseFixedLot       = false;       // Use Fixed Lot Size (false = Dynamic Risk Calculation)
-input double   InpFixedLotSize      = 0.01;        // Fixed Lot Size (e.g. 0.01)
-input double   InpRiskPercent       = 1.0;         // % Risk per Trade (if Fixed Lot = false)
-input double   InpMinLotLimit       = 0.01;        // Minimum Allowed Lot
-input double   InpMaxLotLimit       = 0.50;        // Maximum Allowed Lot
-input int      InpMaxOpenPositions  = 1;           // Max Open Positions per Symbol
-input ulong    InpMagicNumber       = 998877;      // Unique Magic Number
+input group "=== 1. Risk & Money Management ==="
+input bool     InpUseFixedLot          = false;       // Use Fixed Lot Size (false = Dynamic Risk Calculation)
+input double   InpFixedLotSize         = 0.01;        // Fixed Lot Size (if UseFixedLot = true)
+input double   InpRiskPercent          = 1.0;         // % Risk per Trade (if UseFixedLot = false)
+input double   InpMinLotLimit          = 0.01;        // Minimum Allowed Lot
+input double   InpMaxLotLimit          = 0.50;        // Maximum Allowed Lot
+input int      InpMaxOpenPositions     = 1;           // Max Open Positions per Symbol
+input int      InpCooldownMinutes      = 20;          // Cooldown between trades on this symbol (Minutes)
+input int      InpMaxDailyTrades       = 8;           // Maximum allowed trades per day (Anti-Overtrading)
+input ulong    InpMagicNumber          = 998877;      // Unique Magic Number
 
-input group "=== Strategy 1: H4 Support/Resistance + Engulfing (1:2 R:R) ==="
-input bool            InpUseH4_SNR         = true;        // Enable H4 S&R + Engulfing Strategy
-input ENUM_TIMEFRAMES InpEntryTF           = PERIOD_M5;   // Confirmation Timeframe (M5 or M15)
-input int             InpH4Lookback        = 40;          // H4 Lookback Bars
-input double          InpH4TolerancePct    = 0.25;        // S&R Zone Tolerance %
-input bool            InpDynamicMarketSL   = true;        // Dynamic Market Structure SL (Candle Low/High)
-input double          InpRiskRewardRatio   = 2.0;         // Risk to Reward Ratio (2.0 = 1:2)
-input double          InpStructureBufferGold = 0.50;      // Gold SL Buffer in USD ($0.50)
-input double          InpStructureBufferPips = 2.0;       // Forex SL Buffer in Pips (2 pips)
-input double          InpGoldMinSL_USD     = 1.5;         // Gold Min SL in USD
-input double          InpGoldMaxSL_USD     = 8.0;         // Gold Max SL in USD
-input double          InpForexMinSL_Pips   = 10.0;        // Forex Min SL in Pips
-input double          InpForexMaxSL_Pips   = 45.0;        // Forex Max SL in Pips
-input double          InpGoldSL_USD        = 4.0;         // Fallback Gold Stop Loss in USD ($4.00)
-input double          InpForexSL_Pips      = 20.0;        // Fallback Forex Stop Loss in Pips (20 pips)
+input group "=== 2. Strategy 1: H4 Support/Resistance + Engulfing ==="
+input bool            InpUseH4_SNR            = true;        // Enable H4 S&R Strategy
+input ENUM_TIMEFRAMES InpEntryTF              = PERIOD_M5;   // Confirmation Timeframe (M5 or M15)
+input int             InpH4Lookback           = 40;          // H4 Lookback Bars
+input double          InpH4TolerancePct       = 0.25;        // S&R Zone Tolerance %
+input bool            InpDynamicMarketSL      = true;        // Dynamic Market Structure SL (Candle Low/High)
+input double          InpRiskRewardRatio      = 2.0;         // Risk to Reward Ratio (2.0 = 1:2)
+input double          InpStructureBufferGold  = 0.60;        // Gold SL Buffer in USD ($0.60)
+input double          InpStructureBufferPips  = 2.5;         // Forex SL Buffer in Pips (2.5 pips)
+input double          InpGoldMinSL_USD        = 2.0;         // Gold Min SL in USD ($2.00)
+input double          InpGoldMaxSL_USD        = 6.0;         // Gold Max SL in USD ($6.00)
+input double          InpForexMinSL_Pips      = 12.0;        // Forex Min SL in Pips (12 pips)
+input double          InpForexMaxSL_Pips      = 35.0;        // Forex Max SL in Pips (35 pips)
+input double          InpGoldFallbackSL_USD   = 3.5;         // Fallback Gold Stop Loss in USD
+input double          InpForexFallbackSL_Pips = 20.0;        // Fallback Forex Stop Loss in Pips
 
-input group "=== Strategy 2: Indicator Trend Cascade ==="
-input int      InpFastEMAPeriod     = 20;          // Fast EMA Period
-input int      InpSlowEMAPeriod     = 50;          // Slow EMA Period
-input int      InpTrendEMAPeriod    = 200;         // Trend Baseline EMA Period
-input int      InpRSIPeriod         = 14;          // RSI Period
-input double   InpRSIOverbought     = 70.0;        // RSI Overbought Level
-input double   InpRSIOversold       = 30.0;        // RSI Oversold Level
-input int      InpATRPeriod         = 14;          // ATR Period (Volatility)
+input group "=== 3. Strategy 2: Institutional Trend & Value Pullback ==="
+input bool     InpUseTrendPullback     = true;        // Enable H1 Trend + Value Pullback Strategy
+input bool     InpUseH1TrendFilter     = true;        // Enforce H1 50/200 EMA Trend Direction
+input int      InpFastEMAPeriod        = 20;          // M5 Fast EMA Period (Dynamic Support/Resistance)
+input int      InpSlowEMAPeriod        = 50;          // M5 Slow EMA Period
+input int      InpH1FastEMAPeriod      = 50;          // H1 Trend EMA Fast
+input int      InpH1SlowEMAPeriod      = 200;         // H1 Trend EMA Slow
+input int      InpRSIPeriod            = 14;          // RSI Period
+input double   InpRSIBuyPullbackMin    = 38.0;        // Buy Pullback RSI Min (Oversold in Uptrend)
+input double   InpRSIBuyPullbackMax    = 54.0;        // Buy Pullback RSI Max (Never buy at top!)
+input double   InpRSISellPullbackMin   = 46.0;        // Sell Pullback RSI Min
+input double   InpRSISellPullbackMax   = 62.0;        // Sell Pullback RSI Max
+input int      InpATRPeriod            = 14;          // ATR Period (Volatility)
 
-input group "=== Trailing Stop ==="
-input bool     InpUseTrailingStop   = true;        // Enable Trailing Stop
-input double   InpTrailingStartPips = 15.0;        // Pips in profit before Trailing activates
-input double   InpTrailingStepPips  = 5.0;         // Trailing distance in pips
+input group "=== 4. Smart Profit Protection (Break-Even) ==="
+input bool     InpUseBreakEven         = true;        // Enable Break-Even (Risk-Free Trade at 1R)
+input double   InpGoldBETrigger_USD    = 2.50;        // Gold Profit to activate BE ($2.50)
+input double   InpGoldBELock_USD       = 0.50;        // Gold Profit to lock in ($0.50)
+input double   InpForexBETrigger_Pips  = 15.0;        // Forex Profit to activate BE (15 pips)
+input double   InpForexBELock_Pips     = 2.0;         // Forex Profit to lock in (2 pips)
+
+input group "=== 5. Breathing Trailing Stop (Let Profits Run!) ==="
+input bool     InpUseTrailingStop      = true;        // Enable Dynamic Trailing Stop
+input double   InpGoldTrailTrigger_USD = 4.50;        // Gold Profit to activate Trailing ($4.50)
+input double   InpGoldTrailDist_USD    = 2.00;        // Gold Trailing distance behind price ($2.00 room to breathe!)
+input double   InpForexTrailTrigger_Pips = 25.0;      // Forex Profit to activate Trailing (25 pips)
+input double   InpForexTrailDist_Pips  = 12.0;        // Forex Trailing distance behind price (12 pips)
+
+input group "=== 6. Market Session & Spread Filters ==="
+input bool     InpActiveSessionsOnly   = true;        // Only Trade London & New York Sessions
+input int      InpSessionStartUTC      = 7;           // Session Start UTC Hour (07:00 UTC London Open)
+input int      InpSessionEndUTC        = 20;          // Session End UTC Hour (20:00 UTC NY Close)
+input double   InpMaxSpreadGold_USD    = 0.45;        // Max Spread allowed for Gold ($0.45)
+input double   InpMaxSpreadForex_Pips  = 2.0;         // Max Spread allowed for Forex (2.0 pips)
 
 //--- Global Handles & Objects ---
 CTrade         m_trade;
@@ -60,14 +84,16 @@ CSymbolInfo    m_symbol;
 CPositionInfo  m_position;
 CAccountInfo   m_account;
 
-int            h_ema_fast  = INVALID_HANDLE;
-int            h_ema_slow  = INVALID_HANDLE;
-int            h_ema_trend = INVALID_HANDLE;
-int            h_rsi       = INVALID_HANDLE;
-int            h_atr       = INVALID_HANDLE;
+int            h_ema_fast     = INVALID_HANDLE;
+int            h_ema_slow     = INVALID_HANDLE;
+int            h_h1_ema_fast  = INVALID_HANDLE;
+int            h_h1_ema_slow  = INVALID_HANDLE;
+int            h_rsi          = INVALID_HANDLE;
+int            h_atr          = INVALID_HANDLE;
 
-datetime       last_bar_time = 0;
-string         g_status_msg  = "Initializing...";
+datetime       g_last_trade_time = 0;
+datetime       g_last_bar_time   = 0;
+string         g_status_msg      = "Initializing...";
 
 //+------------------------------------------------------------------+
 //| Expert initialization function                                   |
@@ -86,19 +112,22 @@ int OnInit()
    m_trade.SetDeviationInPoints(30);
    m_trade.SetTypeFillingBySymbol(_Symbol);
 
-   h_ema_fast  = iMA(_Symbol, _Period, InpFastEMAPeriod, 0, MODE_EMA, PRICE_CLOSE);
-   h_ema_slow  = iMA(_Symbol, _Period, InpSlowEMAPeriod, 0, MODE_EMA, PRICE_CLOSE);
-   h_ema_trend = iMA(_Symbol, _Period, InpTrendEMAPeriod, 0, MODE_EMA, PRICE_CLOSE);
-   h_rsi       = iRSI(_Symbol, _Period, InpRSIPeriod, PRICE_CLOSE);
-   h_atr       = iATR(_Symbol, _Period, InpATRPeriod);
+   h_ema_fast    = iMA(_Symbol, _Period, InpFastEMAPeriod, 0, MODE_EMA, PRICE_CLOSE);
+   h_ema_slow    = iMA(_Symbol, _Period, InpSlowEMAPeriod, 0, MODE_EMA, PRICE_CLOSE);
+   h_h1_ema_fast = iMA(_Symbol, PERIOD_H1, InpH1FastEMAPeriod, 0, MODE_EMA, PRICE_CLOSE);
+   h_h1_ema_slow = iMA(_Symbol, PERIOD_H1, InpH1SlowEMAPeriod, 0, MODE_EMA, PRICE_CLOSE);
+   h_rsi         = iRSI(_Symbol, _Period, InpRSIPeriod, PRICE_CLOSE);
+   h_atr         = iATR(_Symbol, _Period, InpATRPeriod);
 
-   Print("=================================================");
-   Print("  EXNESS AUTO-TRADER EA STARTED SUCCESSFULLY");
-   Print("  Symbol    : ", _Symbol);
-   Print("  Account   : ", m_account.Login(), " (", m_account.Currency(), ")");
-   Print("  Balance   : $", DoubleToString(m_account.Balance(), 2));
-   Print("  H4 S&R 1:2: ", (InpUseH4_SNR ? "ENABLED (SL=$4, TP=$8)" : "DISABLED"));
-   Print("=================================================");
+   Print("=================================================================");
+   Print("  EXNESS AUTO-TRADER EA v2.0 STARTED");
+   Print("  Symbol         : ", _Symbol);
+   Print("  Account        : ", m_account.Login(), " (", m_account.Currency(), ")");
+   Print("  Balance        : $", DoubleToString(m_account.Balance(), 2));
+   Print("  Break-Even     : ENABLED (Gold: +$", InpGoldBETrigger_USD, " -> Lock +$", InpGoldBELock_USD, ")");
+   Print("  Trailing Stop  : ENABLED (Gold: Starts at +$", InpGoldTrailTrigger_USD, ", Trail Dist: $", InpGoldTrailDist_USD, ")");
+   Print("  Trend Filter   : H1 50/200 EMA + Value Pullback");
+   Print("=================================================================");
 
    return INIT_SUCCEEDED;
 }
@@ -110,7 +139,8 @@ void OnDeinit(const int reason)
 {
    IndicatorRelease(h_ema_fast);
    IndicatorRelease(h_ema_slow);
-   IndicatorRelease(h_ema_trend);
+   IndicatorRelease(h_h1_ema_fast);
+   IndicatorRelease(h_h1_ema_slow);
    IndicatorRelease(h_rsi);
    IndicatorRelease(h_atr);
    Comment("");
@@ -150,7 +180,7 @@ void GetH4SupportResistance(double &supports[], double &resistances[])
 }
 
 //+------------------------------------------------------------------+
-//| Check Candlestick Engulfing Patterns                             |
+//| Candlestick Pattern Detection                                    |
 //+------------------------------------------------------------------+
 bool CheckBullishEngulfing(ENUM_TIMEFRAMES tf)
 {
@@ -191,6 +221,67 @@ double GetEngulfingPatternHigh(ENUM_TIMEFRAMES tf)
 }
 
 //+------------------------------------------------------------------+
+//| Calculate Closed Trades Today (Anti-Overtrading)                 |
+//+------------------------------------------------------------------+
+int CountTradesToday()
+{
+   datetime start_of_day = (datetime)(TimeCurrent() - (TimeCurrent() % 86400));
+   HistorySelect(start_of_day, TimeCurrent());
+   int total_deals = HistoryDealsTotal();
+   int trades = 0;
+   for(int i = 0; i < total_deals; i++)
+   {
+      ulong ticket = HistoryDealGetTicket(i);
+      if(HistoryDealGetInteger(ticket, DEAL_ENTRY) == DEAL_ENTRY_OUT)
+      {
+         if(HistoryDealGetString(ticket, DEAL_SYMBOL) == _Symbol)
+            trades++;
+      }
+   }
+   return trades;
+}
+
+//+------------------------------------------------------------------+
+//| Check Trading Session & Spread                                   |
+//+------------------------------------------------------------------+
+bool IsSpreadAndSessionAllowed(bool is_gold, double bid, double ask)
+{
+   // Check Session
+   if(InpActiveSessionsOnly)
+   {
+      MqlDateTime dt;
+      TimeToStruct(TimeCurrent(), dt);
+      if(dt.hour < InpSessionStartUTC || dt.hour >= InpSessionEndUTC)
+      {
+         g_status_msg = "Outside active London/NY trading hours. Waiting for session open (07:00 UTC)...";
+         return false;
+      }
+   }
+
+   // Check Spread
+   double spread = ask - bid;
+   if(is_gold)
+   {
+      if(spread > InpMaxSpreadGold_USD)
+      {
+         g_status_msg = "Gold spread too high ($" + DoubleToString(spread, 2) + " > $" + DoubleToString(InpMaxSpreadGold_USD, 2) + "). Skipping.";
+         return false;
+      }
+   }
+   else
+   {
+      double spread_pips = spread / (_Point * 10.0);
+      if(spread_pips > InpMaxSpreadForex_Pips)
+      {
+         g_status_msg = "Forex spread too high (" + DoubleToString(spread_pips, 1) + " pips). Skipping.";
+         return false;
+      }
+   }
+
+   return true;
+}
+
+//+------------------------------------------------------------------+
 //| Expert tick function                                             |
 //+------------------------------------------------------------------+
 void OnTick()
@@ -202,8 +293,10 @@ void OnTick()
    double ask = tick.ask;
    if(bid <= 0.0 || ask <= 0.0) return;
 
-   if(InpUseTrailingStop)
-      ApplyTrailingStop(bid, ask);
+   bool is_gold = (StringFind(_Symbol, "XAU") >= 0);
+
+   // 1. ALWAYS MANAGE OPEN POSITIONS: Smart Break-Even & Breathing Trailing Stop
+   ApplyProfitProtectionAndTrailing(bid, ask, is_gold);
 
    double cur_price = bid;
    int open_pos     = CountOpenPositions();
@@ -211,19 +304,47 @@ void OnTick()
 
    if(balance <= 0.0)
    {
-      g_status_msg = "⚠️ ACCOUNT BALANCE IS $0.00! Please deposit Demo funds to trade.";
-      UpdateChartDashboard(balance, cur_price, 0, 0, 0, open_pos);
+      g_status_msg = "⚠️ ACCOUNT BALANCE IS $0.00! Please deposit funds to trade.";
+      UpdateChartDashboard(balance, cur_price, 0, 0, 0, 0, open_pos);
       return;
    }
 
+   // If already holding max positions, don't open more
    if(open_pos >= InpMaxOpenPositions)
    {
-      g_status_msg = "Position currently OPEN. Managing with 1:2 R:R Trailing Stop.";
-      UpdateChartDashboard(balance, cur_price, 0, 0, 0, open_pos);
+      g_status_msg = "Position ACTIVE. Managing with 1R Break-Even & Trailing Stop.";
+      UpdateChartDashboard(balance, cur_price, 0, 0, 0, 0, open_pos);
+      return;
+   }
+
+   // 2. CHECK COOLDOWN (Anti-Overtrading)
+   if(TimeCurrent() - g_last_trade_time < InpCooldownMinutes * 60)
+   {
+      int remain_sec = (int)((InpCooldownMinutes * 60) - (TimeCurrent() - g_last_trade_time));
+      g_status_msg = "Cooldown active (" + IntegerToString(remain_sec / 60) + "m " + IntegerToString(remain_sec % 60) + "s remaining). Avoiding chop.";
+      UpdateChartDashboard(balance, cur_price, 0, 0, 0, 0, open_pos);
+      return;
+   }
+
+   // 3. CHECK DAILY TRADE CAP
+   int today_trades = CountTradesToday();
+   if(today_trades >= InpMaxDailyTrades)
+   {
+      g_status_msg = "Daily trade limit reached (" + IntegerToString(today_trades) + "/" + IntegerToString(InpMaxDailyTrades) + "). Target protected.";
+      UpdateChartDashboard(balance, cur_price, 0, 0, 0, 0, open_pos);
+      return;
+   }
+
+   // 4. CHECK SESSION & SPREAD
+   if(!IsSpreadAndSessionAllowed(is_gold, bid, ask))
+   {
+      UpdateChartDashboard(balance, cur_price, 0, 0, 0, 0, open_pos);
       return;
    }
 
    datetime current_bar_time = iTime(_Symbol, _Period, 0);
+   int stop_level_points = (int)SymbolInfoInteger(_Symbol, SYMBOL_TRADE_STOPS_LEVEL);
+   double min_stop_dist = MathMax(stop_level_points * _Point, (ask - bid) * 2.0);
 
    // -------------------------------------------------------------
    // STRATEGY 1: H4 SUPPORT/RESISTANCE + M15/M5 ENGULFING (1:2 R:R)
@@ -255,17 +376,13 @@ void OnTick()
          }
       }
 
-      bool is_gold = (StringFind(_Symbol, "XAU") >= 0);
-      int stop_level_points = (int)SymbolInfoInteger(_Symbol, SYMBOL_TRADE_STOPS_LEVEL);
-      double min_stop_dist = MathMax(stop_level_points * _Point, (ask - bid) * 2.0);
-
       // Support + Bullish Engulfing -> BUY
       if(near_support > 0.0 && CheckBullishEngulfing(InpEntryTF))
       {
-         g_status_msg = "🎯 H4 Support + Bullish Engulfing! Executing BUY (Dynamic 1:2 R:R)...";
-         if(current_bar_time != last_bar_time)
+         g_status_msg = "🎯 H4 Support + Bullish Engulfing! Executing BUY (1:2 R:R)...";
+         if(current_bar_time != g_last_bar_time)
          {
-            last_bar_time = current_bar_time;
+            g_last_bar_time = current_bar_time;
             double sl_dist = 0.0;
             if(InpDynamicMarketSL)
             {
@@ -280,7 +397,7 @@ void OnTick()
             }
             else
             {
-               sl_dist = is_gold ? InpGoldSL_USD : (InpForexSL_Pips * _Point * 10.0);
+               sl_dist = is_gold ? InpGoldFallbackSL_USD : (InpForexFallbackSL_Pips * _Point * 10.0);
             }
             sl_dist = MathMax(sl_dist, min_stop_dist);
             double tp_dist = sl_dist * InpRiskRewardRatio;
@@ -289,23 +406,24 @@ void OnTick()
             double tp = NormalizeDouble(ask + tp_dist, _Digits);
             double lot = CalculateLot(sl_dist);
 
-            if(m_trade.Buy(lot, _Symbol, ask, sl, tp, "H4_SNR_BUY_1to2"))
+            if(m_trade.Buy(lot, _Symbol, ask, sl, tp, "H4_SNR_BUY"))
             {
-               Print("✅ [H4 S&R BUY 1:2 EXECUTED] Lot: ", lot, " | Price: ", ask, " | SL: ", sl, " | TP: ", tp);
-               g_status_msg = "H4 S&R BUY Executed (SL: " + DoubleToString(sl_dist, _Digits) + ", TP: " + DoubleToString(tp_dist, _Digits) + ")!";
+               g_last_trade_time = TimeCurrent();
+               Print("✅ [H4 S&R BUY EXECUTED] Lot: ", lot, " | Price: ", ask, " | SL: ", sl, " | TP: ", tp);
+               g_status_msg = "H4 S&R BUY Executed (SL: " + DoubleToString(sl_dist, 2) + ", TP: " + DoubleToString(tp_dist, 2) + ")!";
             }
          }
-         UpdateChartDashboard(balance, cur_price, 0, 0, 0, open_pos);
+         UpdateChartDashboard(balance, cur_price, 0, 0, 0, 0, open_pos);
          return;
       }
 
       // Resistance + Bearish Engulfing -> SELL
       if(near_resistance > 0.0 && CheckBearishEngulfing(InpEntryTF))
       {
-         g_status_msg = "🎯 H4 Resistance + Bearish Engulfing! Executing SELL (Dynamic 1:2 R:R)...";
-         if(current_bar_time != last_bar_time)
+         g_status_msg = "🎯 H4 Resistance + Bearish Engulfing! Executing SELL (1:2 R:R)...";
+         if(current_bar_time != g_last_bar_time)
          {
-            last_bar_time = current_bar_time;
+            g_last_bar_time = current_bar_time;
             double sl_dist = 0.0;
             if(InpDynamicMarketSL)
             {
@@ -320,7 +438,7 @@ void OnTick()
             }
             else
             {
-               sl_dist = is_gold ? InpGoldSL_USD : (InpForexSL_Pips * _Point * 10.0);
+               sl_dist = is_gold ? InpGoldFallbackSL_USD : (InpForexFallbackSL_Pips * _Point * 10.0);
             }
             sl_dist = MathMax(sl_dist, min_stop_dist);
             double tp_dist = sl_dist * InpRiskRewardRatio;
@@ -329,92 +447,185 @@ void OnTick()
             double tp = NormalizeDouble(bid - tp_dist, _Digits);
             double lot = CalculateLot(sl_dist);
 
-            if(m_trade.Sell(lot, _Symbol, bid, sl, tp, "H4_SNR_SELL_1to2"))
+            if(m_trade.Sell(lot, _Symbol, bid, sl, tp, "H4_SNR_SELL"))
             {
-               Print("✅ [H4 S&R SELL 1:2 EXECUTED] Lot: ", lot, " | Price: ", bid, " | SL: ", sl, " | TP: ", tp);
-               g_status_msg = "H4 S&R SELL Executed (SL: " + DoubleToString(sl_dist, _Digits) + ", TP: " + DoubleToString(tp_dist, _Digits) + ")!";
+               g_last_trade_time = TimeCurrent();
+               Print("✅ [H4 S&R SELL EXECUTED] Lot: ", lot, " | Price: ", bid, " | SL: ", sl, " | TP: ", tp);
+               g_status_msg = "H4 S&R SELL Executed (SL: " + DoubleToString(sl_dist, 2) + ", TP: " + DoubleToString(tp_dist, 2) + ")!";
             }
          }
-         UpdateChartDashboard(balance, cur_price, 0, 0, 0, open_pos);
+         UpdateChartDashboard(balance, cur_price, 0, 0, 0, 0, open_pos);
          return;
       }
    }
 
-   // -------------------------------------------------------------
-   // STRATEGY 2: REGULAR EMA + RSI MOMENTUM
-   // -------------------------------------------------------------
-   double ema_fast[2], ema_slow[2], rsi[2], atr[1];
-   if(CopyBuffer(h_ema_fast, 0, 0, 2, ema_fast) < 2) return;
-   if(CopyBuffer(h_ema_slow, 0, 0, 2, ema_slow) < 2) return;
-   if(CopyBuffer(h_rsi, 0, 0, 2, rsi) < 2) return;
-   if(CopyBuffer(h_atr, 0, 0, 1, atr) < 1) return;
-
-   double cur_rsi  = rsi[0];
-   double cur_fast = ema_fast[0];
-   double cur_slow = ema_slow[0];
-   double cur_atr  = atr[0];
-
-   bool buy_condition  = (ema_fast[1] > ema_slow[1]) && (cur_price > ema_fast[0]) && (rsi[0] >= 45.0 && rsi[0] <= 68.0);
-   bool sell_condition = (ema_fast[1] < ema_slow[1]) && (cur_price < ema_fast[0]) && (rsi[0] >= 32.0 && rsi[0] <= 55.0);
-
-   int stop_level_points = (int)SymbolInfoInteger(_Symbol, SYMBOL_TRADE_STOPS_LEVEL);
-   double min_stop_dist = MathMax(stop_level_points * _Point, (ask - bid) * 2.0);
-
-   if(buy_condition && current_bar_time != last_bar_time)
+   // -----------------------------------------------------------------
+   // STRATEGY 2: INSTITUTIONAL H1 TREND + VALUE PULLBACK (HIGH WIN-RATE)
+   // -----------------------------------------------------------------
+   if(InpUseTrendPullback)
    {
-      last_bar_time = current_bar_time;
-      double sl_dist = MathMax(cur_atr * 1.5, min_stop_dist);
-      double tp_dist = sl_dist * 2.0; // 1:2 Risk to Reward
-      double sl = NormalizeDouble(ask - sl_dist, _Digits);
-      double tp = NormalizeDouble(ask + tp_dist, _Digits);
-      double lot = CalculateLot(sl_dist);
+      double ema_fast[2], ema_slow[2], rsi[2], atr[1];
+      double h1_fast[1], h1_slow[1];
 
-      if(m_trade.Buy(lot, _Symbol, ask, sl, tp, "ExnessAutoEA_BUY"))
-         g_status_msg = "Trend BUY Trade Executed (1:2 R:R)!";
-   }
-   else if(sell_condition && current_bar_time != last_bar_time)
-   {
-      last_bar_time = current_bar_time;
-      double sl_dist = MathMax(cur_atr * 1.5, min_stop_dist);
-      double tp_dist = sl_dist * 2.0; // 1:2 Risk to Reward
-      double sl = NormalizeDouble(bid + sl_dist, _Digits);
-      double tp = NormalizeDouble(bid - tp_dist, _Digits);
-      double lot = CalculateLot(sl_dist);
+      if(CopyBuffer(h_ema_fast, 0, 0, 2, ema_fast) < 2) return;
+      if(CopyBuffer(h_ema_slow, 0, 0, 2, ema_slow) < 2) return;
+      if(CopyBuffer(h_rsi, 0, 0, 2, rsi) < 2) return;
+      if(CopyBuffer(h_atr, 0, 0, 1, atr) < 1) return;
+      if(CopyBuffer(h_h1_ema_fast, 0, 0, 1, h1_fast) < 1) return;
+      if(CopyBuffer(h_h1_ema_slow, 0, 0, 1, h1_slow) < 1) return;
 
-      if(m_trade.Sell(lot, _Symbol, bid, sl, tp, "ExnessAutoEA_SELL"))
-         g_status_msg = "Trend SELL Trade Executed (1:2 R:R)!";
-   }
-   else
-   {
-      g_status_msg = "H4 S&R Active. Monitoring H4 Key Levels & M5 Engulfing patterns...";
-   }
+      double cur_rsi      = rsi[0];
+      double cur_fast     = ema_fast[0];
+      double cur_slow     = ema_slow[0];
+      double cur_atr      = atr[0];
+      double cur_h1_fast  = h1_fast[0];
+      double cur_h1_slow  = h1_slow[0];
 
-   UpdateChartDashboard(balance, cur_price, cur_rsi, cur_fast, cur_slow, open_pos);
+      // H1 Trend Bias
+      bool h1_bullish = (!InpUseH1TrendFilter) || (cur_price > cur_h1_fast && cur_h1_fast > cur_h1_slow);
+      bool h1_bearish = (!InpUseH1TrendFilter) || (cur_price < cur_h1_fast && cur_h1_fast < cur_h1_slow);
+
+      MqlRates rates[];
+      ArraySetAsSeries(rates, true);
+      if(CopyRates(_Symbol, _Period, 1, 2, rates) < 2) return;
+
+      // BUY Pullback: H1 is Bullish + Price pulled back into 20/50 EMA + RSI in discount + Green rejection candle
+      bool buy_pullback = h1_bullish &&
+                          (cur_fast > cur_slow) &&
+                          (rates[0].low <= cur_fast * 1.001) &&
+                          (cur_rsi >= InpRSIBuyPullbackMin && cur_rsi <= InpRSIBuyPullbackMax) &&
+                          (rates[0].close > rates[0].open);
+
+      // SELL Pullback: H1 is Bearish + Price rallied into 20/50 EMA + RSI in premium + Red rejection candle
+      bool sell_pullback = h1_bearish &&
+                           (cur_fast < cur_slow) &&
+                           (rates[0].high >= cur_fast * 0.999) &&
+                           (cur_rsi >= InpRSISellPullbackMin && cur_rsi <= InpRSISellPullbackMax) &&
+                           (rates[0].close < rates[0].open);
+
+      if(buy_pullback && current_bar_time != g_last_bar_time)
+      {
+         g_last_bar_time = current_bar_time;
+         double sl_dist = MathMax(cur_atr * 1.8, min_stop_dist);
+         if(is_gold) sl_dist = MathMax(InpGoldMinSL_USD, MathMin(sl_dist, InpGoldMaxSL_USD));
+         double tp_dist = sl_dist * 2.0; // 1:2 R:R
+
+         double sl = NormalizeDouble(ask - sl_dist, _Digits);
+         double tp = NormalizeDouble(ask + tp_dist, _Digits);
+         double lot = CalculateLot(sl_dist);
+
+         if(m_trade.Buy(lot, _Symbol, ask, sl, tp, "INST_TREND_BUY"))
+         {
+            g_last_trade_time = TimeCurrent();
+            Print("✅ [INSTITUTIONAL BUY EXECUTED] Lot: ", lot, " | Price: ", ask, " | SL: ", sl, " | TP: ", tp);
+            g_status_msg = "Institutional Trend BUY Executed (1:2 R:R)!";
+         }
+      }
+      else if(sell_pullback && current_bar_time != g_last_bar_time)
+      {
+         g_last_bar_time = current_bar_time;
+         double sl_dist = MathMax(cur_atr * 1.8, min_stop_dist);
+         if(is_gold) sl_dist = MathMax(InpGoldMinSL_USD, MathMin(sl_dist, InpGoldMaxSL_USD));
+         double tp_dist = sl_dist * 2.0; // 1:2 R:R
+
+         double sl = NormalizeDouble(bid + sl_dist, _Digits);
+         double tp = NormalizeDouble(bid - tp_dist, _Digits);
+         double lot = CalculateLot(sl_dist);
+
+         if(m_trade.Sell(lot, _Symbol, bid, sl, tp, "INST_TREND_SELL"))
+         {
+            g_last_trade_time = TimeCurrent();
+            Print("✅ [INSTITUTIONAL SELL EXECUTED] Lot: ", lot, " | Price: ", bid, " | SL: ", sl, " | TP: ", tp);
+            g_status_msg = "Institutional Trend SELL Executed (1:2 R:R)!";
+         }
+      }
+      else
+      {
+         g_status_msg = "H1 Trend: " + (h1_bullish ? "BULLISH 🟢" : (h1_bearish ? "BEARISH 🔴" : "NEUTRAL/CHOP ⚪")) + " | Waiting for clean value pullback...";
+      }
+
+      UpdateChartDashboard(balance, cur_price, cur_rsi, cur_fast, cur_slow, cur_h1_fast, open_pos);
+   }
 }
 
 //+------------------------------------------------------------------+
-//| Update Chart On-Screen Dashboard                                 |
+//| SMART PROFIT PROTECTION & BREATHING TRAILING STOP                |
 //+------------------------------------------------------------------+
-void UpdateChartDashboard(double balance, double price, double rsi, double fast, double slow, int open_pos)
+void ApplyProfitProtectionAndTrailing(double bid, double ask, bool is_gold)
 {
-   string text = "";
-   text += "=====================================================\n";
-   text += "       EXNESS AUTOTRADER BOT (H4 S&R + 1:2 R:R)      \n";
-   text += "=====================================================\n";
-   text += "  Symbol       : " + _Symbol + " (" + EnumToString(_Period) + ")\n";
-   text += "  Balance      : $" + DoubleToString(balance, 2) + " " + m_account.Currency() + "\n";
-   text += "  Equity       : $" + DoubleToString(m_account.Equity(), 2) + "\n";
-   text += "  Leverage     : 1:" + IntegerToString(m_account.Leverage()) + "\n";
-   text += "-----------------------------------------------------\n";
-   text += "  Current Price: " + DoubleToString(price, _Digits) + "\n";
-   text += "  Strategy     : H4 S&R + M15/M5 Engulfing (1:2 R:R)\n";
-   text += "  Gold Target  : SL = $4.00 | TP = $8.00 (Exact 1:2)\n";
-   text += "  Open Trades  : " + IntegerToString(open_pos) + " / " + IntegerToString(InpMaxOpenPositions) + "\n";
-   text += "-----------------------------------------------------\n";
-   text += "  BOT STATUS   : " + g_status_msg + "\n";
-   text += "=====================================================\n";
+   double point = _Point;
 
-   Comment(text);
+   double be_trigger    = is_gold ? InpGoldBETrigger_USD : (InpForexBETrigger_Pips * point * 10.0);
+   double be_lock       = is_gold ? InpGoldBELock_USD    : (InpForexBELock_Pips * point * 10.0);
+   double trail_trigger = is_gold ? InpGoldTrailTrigger_USD : (InpForexTrailTrigger_Pips * point * 10.0);
+   double trail_dist    = is_gold ? InpGoldTrailDist_USD    : (InpForexTrailDist_Pips * point * 10.0);
+
+   for(int i = PositionsTotal() - 1; i >= 0; i--)
+   {
+      if(m_position.SelectByIndex(i))
+      {
+         if(m_position.Symbol() != _Symbol || m_position.Magic() != InpMagicNumber)
+            continue;
+
+         ulong ticket      = m_position.Ticket();
+         double open_price = m_position.PriceOpen();
+         double current_sl = m_position.StopLoss();
+         double current_tp = m_position.TakeProfit();
+
+         if(m_position.PositionType() == POSITION_TYPE_BUY)
+         {
+            double profit_dist = bid - open_price;
+
+            // 1. SMART BREAK-EVEN: Lock in risk-free trade at 1R profit
+            if(InpUseBreakEven && profit_dist >= be_trigger)
+            {
+               double be_sl = NormalizeDouble(open_price + be_lock, _Digits);
+               if(current_sl < be_sl)
+               {
+                  if(m_trade.PositionModify(ticket, be_sl, current_tp))
+                     Print("🛡️ [BREAK-EVEN] BUY #", ticket, " SL secured to: ", be_sl, " (Trade is now 100% Risk-Free!)");
+               }
+            }
+
+            // 2. BREATHING TRAILING STOP: Only after substantial profit, giving wide breathing room
+            if(InpUseTrailingStop && profit_dist >= trail_trigger)
+            {
+               double new_sl = NormalizeDouble(bid - trail_dist, _Digits);
+               if(new_sl > current_sl && new_sl > open_price)
+               {
+                  if(m_trade.PositionModify(ticket, new_sl, current_tp))
+                     Print("📈 [TRAILING STOP] BUY #", ticket, " SL adjusted to: ", new_sl, " (Locked: +$", DoubleToString(new_sl - open_price, 2), ")");
+               }
+            }
+         }
+         else if(m_position.PositionType() == POSITION_TYPE_SELL)
+         {
+            double profit_dist = open_price - ask;
+
+            // 1. SMART BREAK-EVEN: Lock in risk-free trade at 1R profit
+            if(InpUseBreakEven && profit_dist >= be_trigger)
+            {
+               double be_sl = NormalizeDouble(open_price - be_lock, _Digits);
+               if(current_sl == 0.0 || current_sl > be_sl)
+               {
+                  if(m_trade.PositionModify(ticket, be_sl, current_tp))
+                     Print("🛡️ [BREAK-EVEN] SELL #", ticket, " SL secured to: ", be_sl, " (Trade is now 100% Risk-Free!)");
+               }
+            }
+
+            // 2. BREATHING TRAILING STOP
+            if(InpUseTrailingStop && profit_dist >= trail_trigger)
+            {
+               double new_sl = NormalizeDouble(ask + trail_dist, _Digits);
+               if((current_sl == 0.0 || new_sl < current_sl) && new_sl < open_price)
+               {
+                  if(m_trade.PositionModify(ticket, new_sl, current_tp))
+                     Print("📉 [TRAILING STOP] SELL #", ticket, " SL adjusted to: ", new_sl, " (Locked: +$", DoubleToString(open_price - new_sl, 2), ")");
+               }
+            }
+         }
+      }
+   }
 }
 
 //+------------------------------------------------------------------+
@@ -473,51 +684,25 @@ int CountOpenPositions()
 }
 
 //+------------------------------------------------------------------+
-//| Dynamic Trailing Stop to Lock In Profits                         |
+//| Update Chart On-Screen Dashboard                                 |
 //+------------------------------------------------------------------+
-void ApplyTrailingStop(double bid, double ask)
+void UpdateChartDashboard(double balance, double price, double rsi, double fast, double slow, double h1_fast, int open_pos)
 {
-   double point = _Point;
+   string text = "";
+   text += "=====================================================\n";
+   text += "     EXNESS AUTO-TRADER v2.0 INSTITUTIONAL\n";
+   text += "=====================================================\n";
+   text += " Account Login : " + IntegerToString(m_account.Login()) + " (" + m_account.Currency() + ")\n";
+   text += " Balance       : $" + DoubleToString(balance, 2) + "\n";
+   text += " Equity        : $" + DoubleToString(m_account.Equity(), 2) + "\n";
+   text += " Open Trades   : " + IntegerToString(open_pos) + " / " + IntegerToString(InpMaxOpenPositions) + "\n";
+   text += " Trades Today  : " + IntegerToString(CountTradesToday()) + " / " + IntegerToString(InpMaxDailyTrades) + "\n";
+   text += " Status        : " + g_status_msg + "\n";
+   text += "-----------------------------------------------------\n";
+   text += " Break-Even    : At +$" + DoubleToString(InpGoldBETrigger_USD, 2) + " -> Locks +$" + DoubleToString(InpGoldBELock_USD, 2) + " (Risk-Free)\n";
+   text += " Trailing Stop : Starts at +$" + DoubleToString(InpGoldTrailTrigger_USD, 2) + " -> Trails $" + DoubleToString(InpGoldTrailDist_USD, 2) + "\n";
+   text += " Strategy      : H4 S&R (1:2 R:R) + H1 Trend Pullback\n";
+   text += "=====================================================\n";
 
-   for(int i = PositionsTotal() - 1; i >= 0; i--)
-   {
-      if(m_position.SelectByIndex(i))
-      {
-         if(m_position.Symbol() != _Symbol || m_position.Magic() != InpMagicNumber)
-            continue;
-
-         ulong ticket = m_position.Ticket();
-         double open_price = m_position.PriceOpen();
-         double current_sl = m_position.StopLoss();
-         double current_tp = m_position.TakeProfit();
-
-         if(m_position.PositionType() == POSITION_TYPE_BUY)
-         {
-            double profit_pips = (bid - open_price) / (point * 10);
-            if(profit_pips >= InpTrailingStartPips)
-            {
-               double new_sl = NormalizeDouble(bid - (InpTrailingStepPips * point * 10), _Digits);
-               if(new_sl > current_sl && new_sl > open_price)
-               {
-                  m_trade.PositionModify(ticket, new_sl, current_tp);
-                  Print("📈 [TRAILING STOP] BUY Ticket #", ticket, " SL adjusted to: ", new_sl);
-               }
-            }
-         }
-         else if(m_position.PositionType() == POSITION_TYPE_SELL)
-         {
-            double profit_pips = (open_price - ask) / (point * 10);
-            if(profit_pips >= InpTrailingStartPips)
-            {
-               double new_sl = NormalizeDouble(ask + (InpTrailingStepPips * point * 10), _Digits);
-               if((current_sl == 0.0 || new_sl < current_sl) && new_sl < open_price)
-               {
-                  m_trade.PositionModify(ticket, new_sl, current_tp);
-                  Print("📉 [TRAILING STOP] SELL Ticket #", ticket, " SL adjusted to: ", new_sl);
-               }
-            }
-         }
-      }
-   }
+   Comment(text);
 }
-//+------------------------------------------------------------------+
