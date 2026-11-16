@@ -1,4 +1,4 @@
-# 📖 BOT COMMANDS & TRAINING GUIDE (Exness MT5 v2.0)
+# 📖 BOT COMMANDS & TRAINING GUIDE (Exness MT5 v2.5 Institutional)
 
 Yeh guide aapko batati hai ke aap [`bot_commands.json`](file:///e:/Muawia/Trading%20Bot/bot_commands.json) file me bot ko kaise control kar sakte hain aur uski trading strategy ko train/adjust kar sakte hain.
 
@@ -8,18 +8,28 @@ Bot har **10 second** baad is file ko check karta hai. Jaise hi aap file me koi 
 
 ## 🔍 Trade History Analysis (Masla Kya Tha Aur Kaise Theek Hua?):
 
-Humne aapke MT5 account ki **139 closed trades** ki history ka deep analysis kiya. Result:
-* **Win Rate bohut acha tha (57% wins!)**
-* Lekin masla yeh tha: **Average Win sirf +$0.69 tha, jabkay Average Loss -$1.45 (aur Max Loss -$23.36) tha.**
+Aapke MT5 account ki trades ka deep analysis karne par pata chala:
+* **Win Rate bohut solid tha (58% wins!)**
+* Lekin masla yeh tha: **Average Win sirf +$0.60 tha, jabkay Average Loss -$1.30 (aur Max Loss -$23.36) tha.**
 * **Wajah:** 
-  1. **Purana Trailing Stop Gold par 15 cents ($0.15) par activate ho jata tha aur 5 cents ($0.05) par Stop Loss le aata tha.** Gold ka standard spread hi 20-30 cents hota hai, is liye jaise hi trade zara sa profit me aati thi, agle hi second trailing stop hit ho jata tha aur trade out ho jati thi!
-  2. **Over-Trading:** Cooldown aur H1 trend filter na hone ki wajah se bot ne subah 5 ghantay me 139 trades le li theen!
+  1. **Purani EA M1 (1-Minute) Chart par chal rahi thi:** M1 chart par market noise bohot zyada hoti hai aur har 1-2 minute baad trade lag rahi thi (6 ghantay me 290+ trades lag gayin!).
+  2. **Purana Trailing Stop Gold ko Ghut Raha Tha:** Purane bot me trailing stop 15 cents ($0.15) par activate ho kar 5 cents ($0.05) par Stop Loss chipka deta tha. Gold ka spread hi 25-30 cents hota hai, is liye trade thora sa upar jaate hi foran SL hit ho jati thi aur sirf +$0.08 ya +$0.15 par out ho jati thi, jabkay loss me poora -$2.00 lagta tha!
 
-### 💡 Naye v2.0 Engine Ka Solution:
-1. **Smart Break-Even (Risk-Free Trade):** Jab Gold **+$2.50** profit me jaye to Stop Loss ko entry ke upar **+$0.50 profit par lock** kar deta hai. Ab trade kabhi loss me nahi ja sakti!
-2. **Breathing Trailing Stop (Profits Run Karne Dein):** Trailing stop ab tabhi shuru hota hai jab trade **+$4.50** profit me ho, aur price se **$2.00 ka khula fasla** rakhta hai taake Gold ko $6-$10 ka poora Take Profit hit karne ki jagah miley!
-3. **Anti-Overtrading Cooldown (25 Minutes):** Aik trade khatam hone ke baad bot foran doosri trade nahi lega balkay 25 minute cooldown karega.
-4. **Institutional H1 Trend Pullback:** H1 (1-Hour) chart par jab tak 50 aur 200 EMA ka solid trend na ho, M5 par trade nahi lega.
+### 💡 Naye v2.5 Institutional Engine Ka Solution (Loss Kam, Profit Ziyada):
+1. **High Risk-to-Reward (1:2.2 R:R Ratio):**
+   * Agar Stop Loss **$3.00** hai, to Take Profit poora **$6.60** hoga!
+   * Loss hamesha chota hoga aur Profit hamesha loss se double se bhi zyada hoga!
+2. **Trailing Stop Choke Khatam (Micro Trailing Stop OFF):**
+   * Trailing stop ko band kar diya gaya hai taake Gold ki natural movement ko saans lene ki poori jagah miley aur woh poora $6 - $8 Take Profit hit kare!
+3. **Smart Break-Even (Zero Risk Guarantee at 1R):**
+   * Jab Gold trade **+$2.50** profit me chali jaye, bot Stop Loss ko entry ke aage **+$0.40 par lock** kar deta hai.
+   * Is ke baad agar market palat bhi jaye to **LOSS = $0.00** (koi loss nahi hoga)! Aur agar target par jaye to **+$6.60 ka poora profit** milega!
+4. **H4 Support & Resistance + Bullish/Bearish Engulfing & Pinbars:**
+   * Bot H4 ke major institutional levels dekhta hai aur sirf wahan par jab solid rejection candle (Bullish Engulfing ya Hammer Pinbar) banay tabhi entry leta hai.
+5. **Anti-Overtrading Rules:**
+   * **30-Minute Cooldown:** Har trade ke baad 30 minute ka waqfa.
+   * **Max 6 Trades Daily:** Din me sirf 5-6 top quality trades, fazool scalping band.
+   * **Execution M5/M15 Anchored:** Ab EA chart timeframe par depend nahi karta, internal execution M5 institutional timeframe par fix hai.
 
 ---
 
@@ -38,46 +48,52 @@ Humne aapke MT5 account ki **139 closed trades** ki history ka deep analysis kiy
 ### 2. Money & Risk Management (`money_and_risk`)
 | Command | Default | Kya Karti Hai? (Urdu) |
 |:---|:---:|:---|
-| `"use_fixed_lot"` | `false` | `false` par bot har trade ka lot size equity aur risk % ke mutabiq khud calculate karta hai. |
-| `"lot_size"` | `0.01` | Fixed Lot Size (jab `"use_fixed_lot": true` ho). |
-| `"risk_percent_per_trade"` | `1.0` | Har trade par account balance/equity ka kitne percent risk lena hai (1.0%). Chahe SL bara ho ya chota, loss sirf 1% hi hoga! |
-| `"max_daily_trades"` | `8` | **Anti-Overtrading Cap:** Aik din me maximum 8 quality trades (139 trades wala over-trading khatam). |
-| `"trade_cooldown_minutes"` | `25` | Aik trade band hone ke baad agle 25 minute tak usi pair par nayi trade nahi lega (chop se bachne ke liye). |
-| `"max_daily_loss_usd"` | `30.0` | **Circuit Breaker:** Agar kisi din \$30 loss ho jaye to trading khud stop. |
-| `"take_profit_daily_target_usd"` | `60.0` | Din ka target (\$60) achieve hote hi bot safe ho jata hai. |
+| `"use_fixed_lot"` | `true` | `true` par 0.01 fixed lot use hoga. `false` par bot dynamic lot calculate karega. |
+| `"lot_size"` | `0.01` | Fixed Lot Size (0.01 lot recommended). |
+| `"risk_percent_per_trade"` | `1.0` | Har trade par account balance ka kitne percent risk lena hai (1.0%). |
+| `"max_daily_trades"` | `6` | **Anti-Overtrading Cap:** Aik din me maximum 6 quality trades. |
+| `"trade_cooldown_minutes"` | `30` | Aik trade band hone ke baad agle 30 minute tak usi pair par nayi trade nahi lega. |
+| `"max_daily_loss_usd"` | `25.0` | **Circuit Breaker:** Agar kisi din \$25 loss ho jaye to trading khud stop. |
+| `"take_profit_daily_target_usd"` | `50.0` | Din ka target (\$50) achieve hote hi trading stop aur profit safe. |
 
 ---
 
-### 3. Institutional Trend & Pullback Strategy (`advanced_strategy`)
+### 3. Advanced Institutional Strategy (`advanced_strategy`)
 | Command | Default | Kya Karti Hai? (Urdu) |
 |:---|:---:|:---|
-| `"use_h1_trend_filter"` | `true` | **H1 Trend Anchor:** H1 chart par trend check karega. Uptrend me sirf BUY, Downtrend me sirf SELL. |
-| `"entry_timeframe"` | `"M5"` | Entry chart ka timeframe (`"M5"`). |
-| `"h1_trend_ema_fast"` / `"h1_trend_ema_slow"` | `50` / `200` | 50 EMA aur 200 EMA — Institutional Trend Direction. |
-| `"require_pullback_to_ema"` | `true` | Market ki peak par buy nahi karega; jab price 20/50 EMA tak wapas pullback kare tabhi entry dekhega. |
-| `"rsi_buy_pullback_min"` / `"max"` | `38.0` / `54.0` | Uptrend me jab RSI 38-54 ke discount zone me aaye tab BUY karega (overbought peak par nahi). |
-| `"require_rejection_candle"` | `true` | EMA se reversal confirmation candle banne ke baad hi trade execute karega. |
+| `"use_h1_trend_filter"` | `true` | H1 timeframe par 50 aur 200 EMA trend filter. Uptrend me sirf BUY, Downtrend me sirf SELL. |
+| `"entry_timeframe"` | `"M5"` | Execution timeframe. (M5 ya M15). |
+| `"rsi_buy_pullback_min"` | `38.0` | RSI pullback minimum (discount zone). |
+| `"rsi_buy_pullback_max"` | `54.0` | RSI pullback maximum (kabhi peak par BUY nahi karega). |
+| `"require_rejection_candle"` | `true` | Entry se pehle rejection confirmation candle zaroori hai. |
 
 ---
 
-### 4. Smart Profit Protection & Trailing Stop (`profit_protection_and_trailing`)
+### 4. H4 Support & Resistance + Rejection (`h4_snr_engulfing_strategy`)
 | Command | Default | Kya Karti Hai? (Urdu) |
 |:---|:---:|:---|
-| `"use_break_even"` | `true` | **100% Risk-Free Feature:** Jab trade 1R profit me jaye to Stop Loss ko entry ke aage le aayega. |
-| `"gold_break_even_trigger_usd"` | `2.50` | Gold par jab **+$2.50** profit ho jaye to BE trigger hoga. |
-| `"gold_break_even_lock_usd"` | `0.50` | Gold par **+$0.50** profit lock kar lega taake spread nikalne ke baad bhi profit rahe. |
-| `"use_trailing_stop"` | `true` | Profits ko lock karne ke liye trailing stop. |
-| `"gold_trailing_trigger_usd"` | `4.50` | Gold par jab **+$4.50** profit ho jaye tab trailing shuru hoga (pehle ki tarah 15 cents par suffocated nahi hoga!). |
-| `"gold_trailing_distance_usd"` | `2.00` | Gold par trailing stop price se **$2.00** peeche rahega taake trade lambi chal sake aur $8-$10 ka poora TP hit kare! |
-| `"forex_break_even_trigger_pips"` | `15.0` | EURUSD par 15 pips profit par BE. |
-| `"forex_trailing_trigger_pips"` | `25.0` | EURUSD par 25 pips profit par trailing. |
+| `"enabled"` | `true` | H4 Key Levels + Candlestick strategy ko on/off karne ke liye. |
+| `"risk_reward_ratio"` | `2.2` | **1:2.2 Risk to Reward:** Agar Stop Loss $3.00 hai to Take Profit $6.60 hoga. |
+| `"support_resistance_tolerance_usd"` | `3.50` | Gold S&R Zone buffer ($3.50). |
+| `"require_bullish_rejection_at_support"` | `true` | Support par Bullish Engulfing ya Hammer Pinbar dekhega. |
+| `"require_bearish_rejection_at_resistance"` | `true` | Resistance par Bearish Engulfing ya Shooting Star dekhega. |
+| `"gold_min_sl_usd"` | `2.5` | Gold par minimum Stop Loss ($2.50) taake spread se safe rahe. |
+| `"gold_max_sl_usd"` | `5.5` | Gold par maximum Stop Loss ($5.50). |
 
 ---
 
-### 5. Market Session & Spread Filters (`filters`)
+### 5. Smart Profit Protection & Break-Even (`profit_protection_and_trailing`)
 | Command | Default | Kya Karti Hai? (Urdu) |
 |:---|:---:|:---|
-| `"active_sessions_only"` | `true` | Sirf London aur New York ke high-volume sessions me trade karega. |
-| `"allowed_session_start_utc_hour"` | `7` | 07:00 UTC (London Open) se start. |
-| `"allowed_session_end_utc_hour"` | `20` | 20:00 UTC (New York close) tak trade karega. Raat ka dead chop skip karega. |
-| `"max_allowed_spread_gold_usd"` | `0.45` | Gold par agar spread \$0.45 se zyada ho to trade nahi lega. |
+| `"use_break_even"` | `true` | **Zero-Risk Trading:** Jab trade +1R profit me jaye to SL entry ke aage lock kar deta hai. |
+| `"gold_break_even_trigger_usd"` | `2.50` | Gold par **+$2.50** profit hote hi Break-Even active hota hai. |
+| `"gold_break_even_lock_usd"` | `0.40` | Entry price se **+$0.40** aage SL set karta hai (spread aur fees cover). |
+| `"use_trailing_stop"` | `false` | **False rakhein!** Is se trades bina jaldi kate poore Take Profit tak daud sakengi. |
+
+---
+
+## 📌 Zaroori Hidayat (MT5 Chart Setup):
+1. MT5 me Gold (`XAUUSDm`) ka chart open karein aur timeframe **M5** ya **M15** par set karein (M1 par mat rakhein).
+2. Navigator se `Exness_AutoTrader_EA` ko chart par drag karein.
+3. Common tab me **"Allow Algo Trading"** par tick karein aur OK dabayein.
+4. Top toolbar par **"Algo Trading"** green hona chahiye.

@@ -10,17 +10,17 @@
   },
 
   "money_and_risk": {
-    "use_fixed_lot": false,
+    "use_fixed_lot": true,
     "lot_size": 0.01,
     "risk_percent_per_trade": 1.0,
     "max_lot_size_limit": 0.50,
     "min_lot_size_limit": 0.01,
     "max_open_positions_per_pair": 1,
     "max_total_open_positions": 2,
-    "max_daily_trades": 8,
-    "trade_cooldown_minutes": 25,
-    "max_daily_loss_usd": 30.0,
-    "take_profit_daily_target_usd": 60.0
+    "max_daily_trades": 6,
+    "trade_cooldown_minutes": 30,
+    "max_daily_loss_usd": 25.0,
+    "take_profit_daily_target_usd": 50.0
   },
 
   "advanced_strategy": {
@@ -40,32 +40,32 @@
 
   "h4_snr_engulfing_strategy": {
     "enabled": true,
-    "description": "H4 Support/Resistance Zone + M15/M5 Engulfing (Dynamic Market Structure SL & 1:2 R:R)",
+    "description": "H4 Support/Resistance Zone + M15/M5 Rejection (Dynamic Market Structure SL & 1:2.2 R:R)",
     "entry_timeframe": "M5",
     "h4_lookback_candles": 40,
-    "support_resistance_tolerance_pct": 0.25,
-    "require_bullish_engulfing_at_support": true,
-    "require_bearish_engulfing_at_resistance": true,
+    "support_resistance_tolerance_usd": 3.50,
+    "require_bullish_rejection_at_support": true,
+    "require_bearish_rejection_at_resistance": true,
     "sl_calculation_mode": "DYNAMIC_MARKET_STRUCTURE",
-    "risk_reward_ratio": 2.0,
+    "risk_reward_ratio": 2.2,
     "structure_sl_buffer_gold_usd": 0.60,
     "structure_sl_buffer_pips": 2.5,
-    "gold_min_sl_usd": 2.0,
-    "gold_max_sl_usd": 6.0,
+    "gold_min_sl_usd": 2.5,
+    "gold_max_sl_usd": 5.5,
     "forex_min_sl_pips": 12.0,
-    "forex_max_sl_pips": 35.0
+    "forex_max_sl_pips": 30.0
   },
 
   "profit_protection_and_trailing": {
     "use_break_even": true,
     "gold_break_even_trigger_usd": 2.50,
-    "gold_break_even_lock_usd": 0.50,
+    "gold_break_even_lock_usd": 0.40,
     "forex_break_even_trigger_pips": 15.0,
     "forex_break_even_lock_pips": 2.0,
 
-    "use_trailing_stop": true,
-    "gold_trailing_trigger_usd": 4.50,
-    "gold_trailing_distance_usd": 2.00,
+    "use_trailing_stop": false,
+    "gold_trailing_trigger_usd": 5.00,
+    "gold_trailing_distance_usd": 2.50,
     "forex_trailing_trigger_pips": 25.0,
     "forex_trailing_distance_pips": 12.0
   },
